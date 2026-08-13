@@ -1,6 +1,5 @@
-python-telegram-bot==20.7
+python-telegram-bot
 youtube-search-python
-pyrogram
-pytgcalls
+
 
 
