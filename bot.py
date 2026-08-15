@@ -6,11 +6,16 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    ContextTypes
+    ContextTypes,
 )
 
 
+# =========================
+# RENDER HEALTH SERVER
+# =========================
+
 class HealthHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
@@ -21,63 +26,106 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 
 def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    port = int(os.environ.get("PORT", "10000"))
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(f"Health server running on port {port}")
     server.serve_forever()
 
 
+# =========================
+# TELEGRAM COMMANDS
+# =========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "👋 Hello!\n\n"
-        "🎵 Welcome to Agni Music Bot!\n"
-        "🤖 Basic bot is working successfully!\n\n"
+        "🎵 Welcome to Agni Music Bot!\n\n"
+        "🤖 Bot is working successfully!\n\n"
         "Commands:\n"
         "/start - Start the bot\n"
         "/help - Show help\n"
-        "/about - About this bot\n"
+        "/about - About the bot\n"
         "/ping - Check bot status"
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "📚 Help\n\n"
         "/start - Start the bot\n"
         "/help - Show commands\n"
-        "/about - About Agni Bot\n"
-        "/ping - Check bot status"
+        "/about - About Agni Music Bot\n"
+        "/ping - Check if bot is online"
     )
 
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "🎧 Agni Music Bot\n\n"
-        "Currently running in Basic Mode.\n"
-        "Music features will be added later! 🚀"
+        "🤖 Currently running in Basic Mode.\n"
+        "🎵 Music features will be added later!"
     )
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏓 Pong!\n✅ Bot is online.")
 
+    await update.message.reply_text(
+        "🏓 Pong!\n\n"
+        "✅ Bot is online and working!"
+    )
+
+
+# =========================
+# MAIN
+# =========================
 
 def main():
+
     token = os.environ.get("BOT_TOKEN")
 
     if not token:
         print("❌ BOT_TOKEN is missing!")
         return
 
-    Thread(target=run_server, daemon=True).start()
+    # Start Render health server
+    Thread(
+        target=run_server,
+        daemon=True
+    ).start()
 
-    app = ApplicationBuilder().token(token).build()
+    # Telegram bot
+    app = (
+        ApplicationBuilder()
+        .token(token)
+        .build()
+    )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("about", about))
-    app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(
+        CommandHandler("start", start)
+    )
 
-    print("✅ Agni Bot is running...")
+    app.add_handler(
+        CommandHandler("help", help_command)
+    )
+
+    app.add_handler(
+        CommandHandler("about", about)
+    )
+
+    app.add_handler(
+        CommandHandler("ping", ping)
+    )
+
+    print("✅ Agni Music Bot is running...")
+
     app.run_polling()
 
 
