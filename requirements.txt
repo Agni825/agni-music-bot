@@ -1,4 +1,7 @@
 python-telegram-bot
+py-tgcalls
+pyrogram
+tgcrypto
 
 
 
