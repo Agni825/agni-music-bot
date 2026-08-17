@@ -1,4 +1,5 @@
 import os
+import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
@@ -8,6 +9,9 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+
+from pyrogram import Client
+from pytgcalls import PyTgCalls
 
 
 # =========================
@@ -33,45 +37,19 @@ def run_server():
         HealthHandler
     )
 
-    print(f"Health server running on port {port}")
     server.serve_forever()
 
 
 # =========================
-# TELEGRAM COMMANDS
+# BASIC BOT COMMANDS
 # =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👋 Hello!\n\n"
-        "🎵 Welcome to Agni Music Bot!\n\n"
-        "🤖 Bot is working successfully!\n\n"
-        "Commands:\n"
-        "/start - Start the bot\n"
-        "/help - Show help\n"
-        "/about - About the bot\n"
-        "/ping - Check bot status"
-    )
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        "📚 Help\n\n"
-        "/start - Start the bot\n"
-        "/help - Show commands\n"
-        "/about - About Agni Music Bot\n"
-        "/ping - Check if bot is online"
-    )
-
-
-async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        "🎧 Agni Music Bot\n\n"
-        "🤖 Currently running in Basic Mode.\n"
-        "🎵 Music features will be added later!"
+        "🎵 Agni Music Bot is online!\n"
+        "🤖 Assistant system is connected."
     )
 
 
@@ -79,8 +57,44 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🏓 Pong!\n\n"
-        "✅ Bot is online and working!"
+        "✅ Bot is online!"
     )
+
+
+# =========================
+# ASSISTANT
+# =========================
+
+async def start_assistant():
+
+    api_id = int(os.environ["API_ID"])
+    api_hash = os.environ["API_HASH"]
+    session_string = os.environ["SESSION_STRING"]
+
+    assistant = Client(
+        "agni_assistant",
+        api_id=api_id,
+        api_hash=api_hash,
+        session_string=session_string
+    )
+
+    await assistant.start()
+
+    me = await assistant.get_me()
+
+    print(
+        f"✅ ASSISTANT CONNECTED: "
+        f"{me.first_name} (@{me.username})"
+    )
+
+    # Initialize PyTgCalls
+    voice = PyTgCalls(assistant)
+
+    await voice.start()
+
+    print("✅ PYTGCALLS CONNECTED!")
+
+    return assistant, voice
 
 
 # =========================
@@ -89,22 +103,50 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
 
-    token = os.environ.get("BOT_TOKEN")
+    bot_token = os.environ.get("BOT_TOKEN")
 
-    if not token:
+    if not bot_token:
         print("❌ BOT_TOKEN is missing!")
         return
 
-    # Start Render health server
+    if not os.environ.get("API_ID"):
+        print("❌ API_ID is missing!")
+        return
+
+    if not os.environ.get("API_HASH"):
+        print("❌ API_HASH is missing!")
+        return
+
+    if not os.environ.get("SESSION_STRING"):
+        print("❌ SESSION_STRING is missing!")
+        return
+
+    # Health server
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
+    # Dedicated asyncio loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Start assistant
+    try:
+
+        assistant, voice = loop.run_until_complete(
+            start_assistant()
+        )
+
+    except Exception as e:
+
+        print(f"❌ ASSISTANT ERROR: {e}")
+        return
+
     # Telegram bot
     app = (
         ApplicationBuilder()
-        .token(token)
+        .token(bot_token)
         .build()
     )
 
@@ -113,20 +155,49 @@ def main():
     )
 
     app.add_handler(
-        CommandHandler("help", help_command)
-    )
-
-    app.add_handler(
-        CommandHandler("about", about)
-    )
-
-    app.add_handler(
         CommandHandler("ping", ping)
     )
 
-    print("✅ Agni Music Bot is running...")
+    print("✅ AGNI MUSIC BOT + ASSISTANT IS RUNNING!")
 
-    app.run_polling()
+    # Start bot
+    loop.run_until_complete(
+        app.initialize()
+    )
+
+    loop.run_until_complete(
+        app.start()
+    )
+
+    loop.run_until_complete(
+        app.updater.start_polling()
+    )
+
+    try:
+
+        loop.run_forever()
+
+    except KeyboardInterrupt:
+
+        pass
+
+    finally:
+
+        loop.run_until_complete(
+            app.updater.stop()
+        )
+
+        loop.run_until_complete(
+            app.stop()
+        )
+
+        loop.run_until_complete(
+            app.shutdown()
+        )
+
+        loop.run_until_complete(
+            assistant.stop()
+        )
 
 
 if __name__ == "__main__":
