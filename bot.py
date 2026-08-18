@@ -11,26 +11,56 @@ from telegram.ext import (
 )
 
 from pyrogram import Client
+import pyrogram.errors
+
+
+# =========================================================
+# PYROGRAM / PYTG_CALLS COMPATIBILITY FIX
+# =========================================================
+
+if not hasattr(pyrogram.errors, "GroupcallForbidden"):
+    from pyrogram.errors import BadRequest
+
+    class GroupcallForbidden(BadRequest):
+        pass
+
+    pyrogram.errors.GroupcallForbidden = GroupcallForbidden
+
+
+if not hasattr(pyrogram.errors, "GroupcallInvalid"):
+    from pyrogram.errors import BadRequest
+
+    class GroupcallInvalid(BadRequest):
+        pass
+
+    pyrogram.errors.GroupcallInvalid = GroupcallInvalid
+
+
 from pytgcalls import PyTgCalls
 
 
-# =========================
+# =========================================================
 # RENDER HEALTH SERVER
-# =========================
+# =========================================================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Agni Music Bot is running!")
+        self.wfile.write(
+            b"Agni Music Bot is running!"
+        )
 
     def log_message(self, format, *args):
         pass
 
 
 def run_server():
-    port = int(os.environ.get("PORT", "10000"))
+
+    port = int(
+        os.environ.get("PORT", "10000")
+    )
 
     server = HTTPServer(
         ("0.0.0.0", port),
@@ -40,11 +70,14 @@ def run_server():
     server.serve_forever()
 
 
-# =========================
+# =========================================================
 # BASIC BOT COMMANDS
-# =========================
+# =========================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "👋 Hello!\n\n"
@@ -53,7 +86,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ping(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "🏓 Pong!\n\n"
@@ -61,15 +97,21 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# =========================
+# =========================================================
 # ASSISTANT
-# =========================
+# =========================================================
 
 async def start_assistant():
 
-    api_id = int(os.environ["API_ID"])
+    api_id = int(
+        os.environ["API_ID"]
+    )
+
     api_hash = os.environ["API_HASH"]
-    session_string = os.environ["SESSION_STRING"]
+
+    session_string = os.environ[
+        "SESSION_STRING"
+    ]
 
     assistant = Client(
         "agni_assistant",
@@ -83,67 +125,111 @@ async def start_assistant():
     me = await assistant.get_me()
 
     print(
-        f"✅ ASSISTANT CONNECTED: "
-        f"{me.first_name} (@{me.username})"
+        "✅ ASSISTANT CONNECTED: "
+        f"{me.first_name} "
+        f"(@{me.username})"
     )
 
-    # Initialize PyTgCalls
-    voice = PyTgCalls(assistant)
+    # =====================================================
+    # PYTG_CALLS
+    # =====================================================
+
+    voice = PyTgCalls(
+        assistant
+    )
 
     await voice.start()
 
-    print("✅ PYTGCALLS CONNECTED!")
+    print(
+        "✅ PYTGCALLS CONNECTED!"
+    )
 
     return assistant, voice
 
 
-# =========================
+# =========================================================
 # MAIN
-# =========================
+# =========================================================
 
 def main():
 
-    bot_token = os.environ.get("BOT_TOKEN")
+    bot_token = os.environ.get(
+        "BOT_TOKEN"
+    )
 
     if not bot_token:
-        print("❌ BOT_TOKEN is missing!")
+        print(
+            "❌ BOT_TOKEN is missing!"
+        )
         return
 
-    if not os.environ.get("API_ID"):
-        print("❌ API_ID is missing!")
+    if not os.environ.get(
+        "API_ID"
+    ):
+        print(
+            "❌ API_ID is missing!"
+        )
         return
 
-    if not os.environ.get("API_HASH"):
-        print("❌ API_HASH is missing!")
+    if not os.environ.get(
+        "API_HASH"
+    ):
+        print(
+            "❌ API_HASH is missing!"
+        )
         return
 
-    if not os.environ.get("SESSION_STRING"):
-        print("❌ SESSION_STRING is missing!")
+    if not os.environ.get(
+        "SESSION_STRING"
+    ):
+        print(
+            "❌ SESSION_STRING is missing!"
+        )
         return
 
-    # Health server
+    # =====================================================
+    # RENDER HEALTH SERVER
+    # =====================================================
+
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
-    # Dedicated asyncio loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # =====================================================
+    # ASYNCIO LOOP
+    # =====================================================
 
-    # Start assistant
+    loop = asyncio.new_event_loop()
+
+    asyncio.set_event_loop(
+        loop
+    )
+
+    # =====================================================
+    # START ASSISTANT
+    # =====================================================
+
     try:
 
-        assistant, voice = loop.run_until_complete(
-            start_assistant()
+        assistant, voice = (
+            loop.run_until_complete(
+                start_assistant()
+            )
         )
 
     except Exception as e:
 
-        print(f"❌ ASSISTANT ERROR: {e}")
+        print(
+            f"❌ ASSISTANT ERROR: {e}"
+        )
+
         return
 
-    # Telegram bot
+    # =====================================================
+    # TELEGRAM BOT
+    # =====================================================
+
     app = (
         ApplicationBuilder()
         .token(bot_token)
@@ -151,16 +237,28 @@ def main():
     )
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("ping", ping)
+        CommandHandler(
+            "ping",
+            ping
+        )
     )
 
-    print("✅ AGNI MUSIC BOT + ASSISTANT IS RUNNING!")
+    print(
+        "✅ AGNI MUSIC BOT + "
+        "ASSISTANT IS RUNNING!"
+    )
 
-    # Start bot
+    # =====================================================
+    # START TELEGRAM APPLICATION
+    # =====================================================
+
     loop.run_until_complete(
         app.initialize()
     )
@@ -199,6 +297,10 @@ def main():
             assistant.stop()
         )
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
     main()
