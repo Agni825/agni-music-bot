@@ -1,6 +1,6 @@
 python-telegram-bot
-py-tgcalls[pyrogram]==2.3.3
+pyrogram
+py-tgcalls
 tgcrypto
 
-
-
+Render dependency rebuild test
