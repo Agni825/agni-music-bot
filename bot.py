@@ -11,85 +11,51 @@ from telegram.ext import (
 )
 
 from pyrogram import Client
-import pyrogram.errors
-
-
-# =========================================================
-# PYROGRAM / PYTG_CALLS COMPATIBILITY FIX
-# =========================================================
-
-if not hasattr(pyrogram.errors, "GroupcallForbidden"):
-    from pyrogram.errors import BadRequest
-
-    class GroupcallForbidden(BadRequest):
-        pass
-
-    pyrogram.errors.GroupcallForbidden = GroupcallForbidden
-
-
-if not hasattr(pyrogram.errors, "GroupcallInvalid"):
-    from pyrogram.errors import BadRequest
-
-    class GroupcallInvalid(BadRequest):
-        pass
-
-    pyrogram.errors.GroupcallInvalid = GroupcallInvalid
-
-
 from pytgcalls import PyTgCalls
 
 
-# =========================================================
+# =========================
 # RENDER HEALTH SERVER
-# =========================================================
+# =========================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(
-            b"Agni Music Bot is running!"
-        )
+        self.wfile.write(b"Agni Music Bot is running!")
 
     def log_message(self, format, *args):
         pass
 
 
 def run_server():
-
-    port = int(
-        os.environ.get("PORT", "10000")
-    )
+    port = int(os.environ.get("PORT", "10000"))
 
     server = HTTPServer(
         ("0.0.0.0", port),
         HealthHandler
     )
 
+    print(f"🌐 HEALTH SERVER STARTED ON PORT {port}")
+
     server.serve_forever()
 
 
-# =========================================================
+# =========================
 # BASIC BOT COMMANDS
-# =========================================================
+# =========================
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👋 Hello!\n\n"
         "🎵 Agni Music Bot is online!\n"
-        "🤖 Assistant system is connected."
+        "🤖 Assistant system is starting."
     )
 
 
-async def ping(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🏓 Pong!\n\n"
@@ -97,21 +63,21 @@ async def ping(
     )
 
 
-# =========================================================
-# ASSISTANT
-# =========================================================
+# =========================
+# ASSISTANT + PYTGCALLS
+# =========================
 
 async def start_assistant():
 
-    api_id = int(
-        os.environ["API_ID"]
-    )
+    print("🔵 ASSISTANT: reading environment variables...")
 
+    api_id = int(os.environ["API_ID"])
     api_hash = os.environ["API_HASH"]
+    session_string = os.environ["SESSION_STRING"]
 
-    session_string = os.environ[
-        "SESSION_STRING"
-    ]
+    print("🔵 ASSISTANT: environment variables loaded.")
+
+    print("🔵 ASSISTANT: creating Pyrogram client...")
 
     assistant = Client(
         "agni_assistant",
@@ -120,115 +86,181 @@ async def start_assistant():
         session_string=session_string
     )
 
-    await assistant.start()
+    print("🔵 ASSISTANT: starting Pyrogram...")
 
-    me = await assistant.get_me()
+    try:
+
+        await asyncio.wait_for(
+            assistant.start(),
+            timeout=30
+        )
+
+    except asyncio.TimeoutError:
+
+        print(
+            "❌ ASSISTANT ERROR: "
+            "assistant.start() timed out after 30 seconds"
+        )
+
+        raise
+
+    except Exception as e:
+
+        print(
+            f"❌ ASSISTANT ERROR during "
+            f"assistant.start(): {e}"
+        )
+
+        raise
+
+    print("🟢 ASSISTANT: Pyrogram started!")
+
+    print("🔵 ASSISTANT: checking account...")
+
+    try:
+
+        me = await asyncio.wait_for(
+            assistant.get_me(),
+            timeout=15
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ ASSISTANT ERROR during "
+            f"get_me(): {e}"
+        )
+
+        raise
+
+    username = (
+        f"@{me.username}"
+        if me.username
+        else "@None"
+    )
 
     print(
-        "✅ ASSISTANT CONNECTED: "
-        f"{me.first_name} "
-        f"(@{me.username})"
+        f"✅ ASSISTANT CONNECTED: "
+        f"{me.first_name} ({username})"
     )
 
-    # =====================================================
-    # PYTG_CALLS
-    # =====================================================
+    # =========================
+    # PYTGCALLS
+    # =========================
 
-    voice = PyTgCalls(
-        assistant
-    )
+    print("🔵 PYTGCALLS: creating client...")
 
-    await voice.start()
+    try:
 
-    print(
-        "✅ PYTGCALLS CONNECTED!"
-    )
+        voice = PyTgCalls(assistant)
+
+        print("🔵 PYTGCALLS: starting...")
+
+        await asyncio.wait_for(
+            voice.start(),
+            timeout=30
+        )
+
+        print("✅ PYTGCALLS CONNECTED!")
+
+    except asyncio.TimeoutError:
+
+        print(
+            "❌ PYTGCALLS ERROR: "
+            "voice.start() timed out after 30 seconds"
+        )
+
+        raise
+
+    except Exception as e:
+
+        print(
+            f"❌ PYTGCALLS ERROR: {e}"
+        )
+
+        raise
 
     return assistant, voice
 
 
-# =========================================================
+# =========================
 # MAIN
-# =========================================================
+# =========================
 
 def main():
 
-    bot_token = os.environ.get(
-        "BOT_TOKEN"
-    )
+    print("🚀 AGNI MUSIC BOT STARTING...")
+
+    bot_token = os.environ.get("BOT_TOKEN")
 
     if not bot_token:
-        print(
-            "❌ BOT_TOKEN is missing!"
-        )
+
+        print("❌ BOT_TOKEN is missing!")
+
         return
 
-    if not os.environ.get(
-        "API_ID"
-    ):
-        print(
-            "❌ API_ID is missing!"
-        )
+    if not os.environ.get("API_ID"):
+
+        print("❌ API_ID is missing!")
+
         return
 
-    if not os.environ.get(
-        "API_HASH"
-    ):
-        print(
-            "❌ API_HASH is missing!"
-        )
+    if not os.environ.get("API_HASH"):
+
+        print("❌ API_HASH is missing!")
+
         return
 
-    if not os.environ.get(
-        "SESSION_STRING"
-    ):
-        print(
-            "❌ SESSION_STRING is missing!"
-        )
+    if not os.environ.get("SESSION_STRING"):
+
+        print("❌ SESSION_STRING is missing!")
+
         return
 
-    # =====================================================
-    # RENDER HEALTH SERVER
-    # =====================================================
+    # =========================
+    # HEALTH SERVER
+    # =========================
+
+    print("🔵 Starting Render health server...")
 
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
-    # =====================================================
+    # =========================
     # ASYNCIO LOOP
-    # =====================================================
+    # =========================
 
     loop = asyncio.new_event_loop()
 
-    asyncio.set_event_loop(
-        loop
-    )
+    asyncio.set_event_loop(loop)
 
-    # =====================================================
+    # =========================
     # START ASSISTANT
-    # =====================================================
+    # =========================
 
     try:
 
-        assistant, voice = (
-            loop.run_until_complete(
-                start_assistant()
-            )
+        print("🔵 Starting assistant system...")
+
+        assistant, voice = loop.run_until_complete(
+            start_assistant()
         )
 
     except Exception as e:
 
         print(
-            f"❌ ASSISTANT ERROR: {e}"
+            f"❌ ASSISTANT SYSTEM FAILED: {e}"
         )
 
         return
 
-    # =====================================================
+    # =========================
     # TELEGRAM BOT
-    # =====================================================
+    # =========================
+
+    print("🔵 Creating Telegram bot...")
 
     app = (
         ApplicationBuilder()
@@ -252,55 +284,96 @@ def main():
 
     print(
         "✅ AGNI MUSIC BOT + "
-        "ASSISTANT IS RUNNING!"
+        "ASSISTANT + PYTGCALLS READY!"
     )
 
-    # =====================================================
-    # START TELEGRAM APPLICATION
-    # =====================================================
-
-    loop.run_until_complete(
-        app.initialize()
-    )
-
-    loop.run_until_complete(
-        app.start()
-    )
-
-    loop.run_until_complete(
-        app.updater.start_polling()
-    )
+    # =========================
+    # START TELEGRAM BOT
+    # =========================
 
     try:
+
+        print("🔵 Initializing Telegram bot...")
+
+        loop.run_until_complete(
+            app.initialize()
+        )
+
+        print("🔵 Starting Telegram bot...")
+
+        loop.run_until_complete(
+            app.start()
+        )
+
+        print("🔵 Starting polling...")
+
+        loop.run_until_complete(
+            app.updater.start_polling()
+        )
+
+        print(
+            "🎵 AGNI MUSIC BOT IS FULLY RUNNING! 🎵"
+        )
 
         loop.run_forever()
 
     except KeyboardInterrupt:
 
-        pass
+        print("🛑 Bot stopped manually.")
+
+    except Exception as e:
+
+        print(
+            f"❌ TELEGRAM BOT ERROR: {e}"
+        )
 
     finally:
 
-        loop.run_until_complete(
-            app.updater.stop()
-        )
+        print("🔵 Shutting down...")
 
-        loop.run_until_complete(
-            app.stop()
-        )
+        try:
 
-        loop.run_until_complete(
-            app.shutdown()
-        )
+            loop.run_until_complete(
+                app.updater.stop()
+            )
 
-        loop.run_until_complete(
-            assistant.stop()
-        )
+        except Exception:
+            pass
+
+        try:
+
+            loop.run_until_complete(
+                app.stop()
+            )
+
+        except Exception:
+            pass
+
+        try:
+
+            loop.run_until_complete(
+                app.shutdown()
+            )
+
+        except Exception:
+            pass
+
+        try:
+
+            loop.run_until_complete(
+                assistant.stop()
+            )
+
+        except Exception:
+            pass
+
+        print("🛑 AGNI MUSIC BOT STOPPED.")
 
 
-# =========================================================
+# =========================
 # RUN
-# =========================================================
+# =========================
 
 if __name__ == "__main__":
+
     main()
