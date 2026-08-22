@@ -39,7 +39,10 @@ def run_server():
         HealthHandler
     )
 
-    print(f"🌐 Health server running on port {port}")
+    print(
+        f"🌐 Health server running on port {port}",
+        flush=True
+    )
 
     server.serve_forever()
 
@@ -71,13 +74,19 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_assistant():
 
-    print("🔵 TELETHON: reading environment variables...")
+    print(
+        "🔵 TELETHON: reading environment variables...",
+        flush=True
+    )
 
     api_id = int(os.environ["API_ID"])
     api_hash = os.environ["API_HASH"]
     session_string = os.environ["SESSION_STRING"]
 
-    print("🔵 TELETHON: creating client...")
+    print(
+        "🔵 TELETHON: creating client...",
+        flush=True
+    )
 
     assistant = TelegramClient(
         StringSession(session_string),
@@ -85,13 +94,19 @@ async def start_assistant():
         api_hash
     )
 
-    print("🔵 TELETHON: connecting...")
+    print(
+        "🔵 TELETHON: connecting...",
+        flush=True
+    )
 
     await assistant.connect()
 
     if not await assistant.is_user_authorized():
 
-        print("❌ TELETHON: session is not authorized!")
+        print(
+            "❌ TELETHON: session is not authorized!",
+            flush=True
+        )
 
         await assistant.disconnect()
 
@@ -109,22 +124,32 @@ async def start_assistant():
 
     print(
         f"✅ ASSISTANT CONNECTED: "
-        f"{me.first_name} ({username})"
+        f"{me.first_name} ({username})",
+        flush=True
     )
 
     # =========================
     # PYTGCALLS
     # =========================
 
-    print("🔵 PYTGCALLS: creating client...")
+    print(
+        "🔵 PYTGCALLS: creating client...",
+        flush=True
+    )
 
     voice = PyTgCalls(assistant)
 
-    print("🔵 PYTGCALLS: starting...")
+    print(
+        "🔵 PYTGCALLS: starting...",
+        flush=True
+    )
 
     await voice.start()
 
-    print("✅ PYTGCALLS CONNECTED!")
+    print(
+        "✅ PYTGCALLS CONNECTED!",
+        flush=True
+    )
 
     return assistant, voice
 
@@ -135,24 +160,40 @@ async def start_assistant():
 
 def main():
 
-    print("🚀 AGNI MUSIC BOT STARTING...")
+    # IMPORTANT DIAGNOSTIC LINE
+    print(
+        "🔥 AGNI TEST: bot.py STARTED!",
+        flush=True
+    )
 
     bot_token = os.environ.get("BOT_TOKEN")
 
     if not bot_token:
-        print("❌ BOT_TOKEN is missing!")
+        print(
+            "❌ BOT_TOKEN is missing!",
+            flush=True
+        )
         return
 
     if not os.environ.get("API_ID"):
-        print("❌ API_ID is missing!")
+        print(
+            "❌ API_ID is missing!",
+            flush=True
+        )
         return
 
     if not os.environ.get("API_HASH"):
-        print("❌ API_HASH is missing!")
+        print(
+            "❌ API_HASH is missing!",
+            flush=True
+        )
         return
 
     if not os.environ.get("SESSION_STRING"):
-        print("❌ SESSION_STRING is missing!")
+        print(
+            "❌ SESSION_STRING is missing!",
+            flush=True
+        )
         return
 
     # =========================
@@ -185,7 +226,8 @@ def main():
     except Exception as e:
 
         print(
-            f"❌ ASSISTANT ERROR: {e}"
+            f"❌ ASSISTANT ERROR: {e}",
+            flush=True
         )
 
         return
@@ -194,7 +236,10 @@ def main():
     # TELEGRAM BOT
     # =========================
 
-    print("🔵 Creating Telegram bot...")
+    print(
+        "🔵 Creating Telegram bot...",
+        flush=True
+    )
 
     app = (
         ApplicationBuilder()
@@ -212,7 +257,8 @@ def main():
 
     print(
         "✅ AGNI MUSIC BOT + "
-        "TELETHON ASSISTANT + PYTGCALLS READY!"
+        "TELETHON ASSISTANT + PYTGCALLS READY!",
+        flush=True
     )
 
     # =========================
@@ -234,24 +280,32 @@ def main():
         )
 
         print(
-            "🎵 AGNI MUSIC BOT IS FULLY RUNNING!"
+            "🎵 AGNI MUSIC BOT IS FULLY RUNNING!",
+            flush=True
         )
 
         loop.run_forever()
 
     except KeyboardInterrupt:
 
-        print("🛑 Bot stopped.")
+        print(
+            "🛑 Bot stopped.",
+            flush=True
+        )
 
     except Exception as e:
 
         print(
-            f"❌ TELEGRAM BOT ERROR: {e}"
+            f"❌ TELEGRAM BOT ERROR: {e}",
+            flush=True
         )
 
     finally:
 
-        print("🔵 Shutting down...")
+        print(
+            "🔵 Shutting down...",
+            flush=True
+        )
 
         try:
             loop.run_until_complete(
@@ -281,7 +335,10 @@ def main():
         except Exception:
             pass
 
-        print("🛑 AGNI MUSIC BOT STOPPED.")
+        print(
+            "🛑 AGNI MUSIC BOT STOPPED.",
+            flush=True
+        )
 
 
 # =========================
