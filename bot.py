@@ -68,6 +68,47 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    chat_id = update.effective_chat.id
+
+    print(
+        f"🎤 JOIN COMMAND RECEIVED | CHAT ID: {chat_id}",
+        flush=True
+    )
+
+    await update.message.reply_text(
+        "🎤 VC join test received!\n\n"
+        "🔎 Checking the active voice chat..."
+    )
+
+    try:
+
+        # Check whether a voice chat exists
+        full_chat = await assistant.get_entity(chat_id)
+
+        print(
+            f"🎤 VC TEST | ENTITY FOUND: {full_chat}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            "✅ Group found.\n"
+            "🔎 Voice-chat connection is being checked in Render logs."
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ JOIN TEST ERROR: {e}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            f"❌ VC test error:\n{e}"
+        )
+
+
 # =========================
 # TELETHON ASSISTANT
 # =========================
@@ -160,7 +201,6 @@ async def start_assistant():
 
 def main():
 
-    # IMPORTANT DIAGNOSTIC LINE
     print(
         "🔥 AGNI TEST: bot.py STARTED!",
         flush=True
@@ -169,31 +209,19 @@ def main():
     bot_token = os.environ.get("BOT_TOKEN")
 
     if not bot_token:
-        print(
-            "❌ BOT_TOKEN is missing!",
-            flush=True
-        )
+        print("❌ BOT_TOKEN is missing!", flush=True)
         return
 
     if not os.environ.get("API_ID"):
-        print(
-            "❌ API_ID is missing!",
-            flush=True
-        )
+        print("❌ API_ID is missing!", flush=True)
         return
 
     if not os.environ.get("API_HASH"):
-        print(
-            "❌ API_HASH is missing!",
-            flush=True
-        )
+        print("❌ API_HASH is missing!", flush=True)
         return
 
     if not os.environ.get("SESSION_STRING"):
-        print(
-            "❌ SESSION_STRING is missing!",
-            flush=True
-        )
+        print("❌ SESSION_STRING is missing!", flush=True)
         return
 
     # =========================
@@ -216,6 +244,8 @@ def main():
     # =========================
     # TELETHON ASSISTANT
     # =========================
+
+    global assistant
 
     try:
 
@@ -253,6 +283,10 @@ def main():
 
     app.add_handler(
         CommandHandler("ping", ping)
+    )
+
+    app.add_handler(
+        CommandHandler("join", join)
     )
 
     print(
