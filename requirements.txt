@@ -2,3 +2,4 @@ python-telegram-bot
 telethon
 py-tgcalls
 tgcrypto
+yt-dlp
