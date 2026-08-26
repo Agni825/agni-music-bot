@@ -12,7 +12,17 @@ from telegram.ext import (
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+
 from pytgcalls import PyTgCalls
+from pytgcalls.types import GroupCallConfig
+
+
+# =========================
+# GLOBAL CLIENTS
+# =========================
+
+assistant = None
+voice = None
 
 
 # =========================
@@ -24,7 +34,9 @@ class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Agni Music Bot is running!")
+        self.wfile.write(
+            b"Agni Music Bot is running!"
+        )
 
     def log_message(self, format, *args):
         pass
@@ -32,7 +44,9 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def run_server():
 
-    port = int(os.environ.get("PORT", "10000"))
+    port = int(
+        os.environ.get("PORT", "10000")
+    )
 
     server = HTTPServer(
         ("0.0.0.0", port),
@@ -51,7 +65,10 @@ def run_server():
 # TELEGRAM BOT COMMANDS
 # =========================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "👋 Hello!\n\n"
@@ -60,7 +77,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ping(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "🏓 Pong!\n\n"
@@ -68,7 +88,14 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# ACTUAL VC JOIN
+# =========================
+
+async def join(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     chat_id = update.effective_chat.id
 
@@ -77,35 +104,110 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         flush=True
     )
 
+    if voice is None:
+
+        await update.message.reply_text(
+            "❌ PyTgCalls is not ready."
+        )
+
+        print(
+            "❌ JOIN ERROR: voice client is None",
+            flush=True
+        )
+
+        return
+
     await update.message.reply_text(
-        "🎤 VC join test received!\n\n"
-        "🔎 Checking the active voice chat..."
+        "🎤 Joining the active VC..."
     )
 
     try:
 
-        # Check whether a voice chat exists
-        full_chat = await assistant.get_entity(chat_id)
+        # Do NOT create a new voice chat.
+        # Join the already-active VC.
+        config = GroupCallConfig(
+            auto_start=False
+        )
+
+        await voice.play(
+            chat_id,
+            None,
+            config=config
+        )
 
         print(
-            f"🎤 VC TEST | ENTITY FOUND: {full_chat}",
+            f"✅ VC JOINED SUCCESSFULLY | CHAT ID: {chat_id}",
             flush=True
         )
 
         await update.message.reply_text(
-            "✅ Group found.\n"
-            "🔎 Voice-chat connection is being checked in Render logs."
+            "✅ Assistant joined the Voice Chat! 🎤\n\n"
+            "🎵 Agni Music is ready."
         )
 
     except Exception as e:
 
         print(
-            f"❌ JOIN TEST ERROR: {e}",
+            f"❌ VC JOIN ERROR: {type(e).__name__}: {e}",
             flush=True
         )
 
         await update.message.reply_text(
-            f"❌ VC test error:\n{e}"
+            "❌ VC join failed.\n\n"
+            f"Error: {type(e).__name__}: {e}"
+        )
+
+
+# =========================
+# LEAVE VC
+# =========================
+
+async def leave(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+
+    print(
+        f"🚪 LEAVE COMMAND RECEIVED | CHAT ID: {chat_id}",
+        flush=True
+    )
+
+    if voice is None:
+
+        await update.message.reply_text(
+            "❌ PyTgCalls is not ready."
+        )
+
+        return
+
+    try:
+
+        await voice.leave_call(
+            chat_id
+        )
+
+        print(
+            f"✅ LEFT VC | CHAT ID: {chat_id}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            "🚪 Assistant left the Voice Chat."
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ VC LEAVE ERROR: "
+            f"{type(e).__name__}: {e}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            "❌ Leave failed.\n\n"
+            f"Error: {type(e).__name__}: {e}"
         )
 
 
@@ -120,16 +222,22 @@ async def start_assistant():
         flush=True
     )
 
-    api_id = int(os.environ["API_ID"])
+    api_id = int(
+        os.environ["API_ID"]
+    )
+
     api_hash = os.environ["API_HASH"]
-    session_string = os.environ["SESSION_STRING"]
+
+    session_string = os.environ[
+        "SESSION_STRING"
+    ]
 
     print(
         "🔵 TELETHON: creating client...",
         flush=True
     )
 
-    assistant = TelegramClient(
+    assistant_client = TelegramClient(
         StringSession(session_string),
         api_id,
         api_hash
@@ -140,22 +248,22 @@ async def start_assistant():
         flush=True
     )
 
-    await assistant.connect()
+    await assistant_client.connect()
 
-    if not await assistant.is_user_authorized():
+    if not await assistant_client.is_user_authorized():
 
         print(
             "❌ TELETHON: session is not authorized!",
             flush=True
         )
 
-        await assistant.disconnect()
+        await assistant_client.disconnect()
 
         raise RuntimeError(
             "Telethon SESSION_STRING is invalid or expired."
         )
 
-    me = await assistant.get_me()
+    me = await assistant_client.get_me()
 
     username = (
         f"@{me.username}"
@@ -178,21 +286,26 @@ async def start_assistant():
         flush=True
     )
 
-    voice = PyTgCalls(assistant)
+    voice_client = PyTgCalls(
+        assistant_client
+    )
 
     print(
         "🔵 PYTGCALLS: starting...",
         flush=True
     )
 
-    await voice.start()
+    await voice_client.start()
 
     print(
         "✅ PYTGCALLS CONNECTED!",
         flush=True
     )
 
-    return assistant, voice
+    return (
+        assistant_client,
+        voice_client
+    )
 
 
 # =========================
@@ -201,27 +314,56 @@ async def start_assistant():
 
 def main():
 
+    global assistant
+    global voice
+
     print(
         "🔥 AGNI TEST: bot.py STARTED!",
         flush=True
     )
 
-    bot_token = os.environ.get("BOT_TOKEN")
+    # =========================
+    # ENVIRONMENT VARIABLES
+    # =========================
+
+    bot_token = os.environ.get(
+        "BOT_TOKEN"
+    )
 
     if not bot_token:
-        print("❌ BOT_TOKEN is missing!", flush=True)
+
+        print(
+            "❌ BOT_TOKEN is missing!",
+            flush=True
+        )
+
         return
 
     if not os.environ.get("API_ID"):
-        print("❌ API_ID is missing!", flush=True)
+
+        print(
+            "❌ API_ID is missing!",
+            flush=True
+        )
+
         return
 
     if not os.environ.get("API_HASH"):
-        print("❌ API_HASH is missing!", flush=True)
+
+        print(
+            "❌ API_HASH is missing!",
+            flush=True
+        )
+
         return
 
     if not os.environ.get("SESSION_STRING"):
-        print("❌ SESSION_STRING is missing!", flush=True)
+
+        print(
+            "❌ SESSION_STRING is missing!",
+            flush=True
+        )
+
         return
 
     # =========================
@@ -242,21 +384,22 @@ def main():
     asyncio.set_event_loop(loop)
 
     # =========================
-    # TELETHON ASSISTANT
+    # TELETHON + PYTGCALLS
     # =========================
-
-    global assistant
 
     try:
 
-        assistant, voice = loop.run_until_complete(
-            start_assistant()
+        assistant, voice = (
+            loop.run_until_complete(
+                start_assistant()
+            )
         )
 
     except Exception as e:
 
         print(
-            f"❌ ASSISTANT ERROR: {e}",
+            f"❌ ASSISTANT ERROR: "
+            f"{type(e).__name__}: {e}",
             flush=True
         )
 
@@ -278,20 +421,37 @@ def main():
     )
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("ping", ping)
+        CommandHandler(
+            "ping",
+            ping
+        )
     )
 
     app.add_handler(
-        CommandHandler("join", join)
+        CommandHandler(
+            "join",
+            join
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "leave",
+            leave
+        )
     )
 
     print(
         "✅ AGNI MUSIC BOT + "
-        "TELETHON ASSISTANT + PYTGCALLS READY!",
+        "TELETHON ASSISTANT + "
+        "PYTGCALLS READY!",
         flush=True
     )
 
@@ -330,7 +490,8 @@ def main():
     except Exception as e:
 
         print(
-            f"❌ TELEGRAM BOT ERROR: {e}",
+            f"❌ TELEGRAM BOT ERROR: "
+            f"{type(e).__name__}: {e}",
             flush=True
         )
 
@@ -342,30 +503,40 @@ def main():
         )
 
         try:
+
             loop.run_until_complete(
                 app.updater.stop()
             )
+
         except Exception:
             pass
 
         try:
+
             loop.run_until_complete(
                 app.stop()
             )
+
         except Exception:
             pass
 
         try:
+
             loop.run_until_complete(
                 app.shutdown()
             )
+
         except Exception:
             pass
 
         try:
-            loop.run_until_complete(
-                assistant.disconnect()
-            )
+
+            if assistant:
+
+                loop.run_until_complete(
+                    assistant.disconnect()
+                )
+
         except Exception:
             pass
 
@@ -380,4 +551,5 @@ def main():
 # =========================
 
 if __name__ == "__main__":
+
     main()
