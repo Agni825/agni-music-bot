@@ -1,5 +1,4 @@
 python-telegram-bot
 telethon
-py-tgcalls
+pytgcalls
 tgcrypto
-yt-dlp
