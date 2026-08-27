@@ -1,5 +1,6 @@
 import os
 import asyncio
+import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
@@ -93,6 +94,8 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
+        # Join the active voice chat.
+        # No stream is supplied yet.
         await voice.play(chat_id)
 
         await update.message.reply_text(
@@ -107,13 +110,37 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
 
         print(
-            f"❌ VC JOIN ERROR: {type(e).__name__}: {e}"
+            f"❌ VC JOIN ERROR: "
+            f"{type(e).__name__}: {e}"
         )
 
         await update.message.reply_text(
-            f"❌ VC join failed.\n\n"
+            "❌ VC join failed.\n\n"
             f"{type(e).__name__}: {e}"
         )
+
+
+# =========================
+# TELEGRAM LINK PARSER
+# =========================
+
+def parse_telegram_link(url):
+
+    # Public Telegram link:
+    # https://t.me/channelusername/123
+
+    match = re.match(
+        r"^https?://t\.me/([A-Za-z0-9_]+)/(\d+)",
+        url
+    )
+
+    if not match:
+        return None, None
+
+    username = match.group(1)
+    message_id = int(match.group(2))
+
+    return username, message_id
 
 
 # =========================
@@ -127,60 +154,121 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
 
         await update.message.reply_text(
-            "🎵 Please give a direct audio URL.\n\n"
+            "🎵 Telegram music link दीजिए.\n\n"
             "Example:\n"
-            "/play https://example.com/song.mp3"
+            "/play https://t.me/channelname/123"
         )
 
         return
 
     url = context.args[0].strip()
 
-    # -------------------------
-    # Block YouTube for now
-    # -------------------------
+    username, message_id = parse_telegram_link(url)
 
-    youtube_domains = (
-        "youtube.com",
-        "youtu.be",
-        "music.youtube.com"
-    )
-
-    if any(domain in url.lower() for domain in youtube_domains):
+    if not username:
 
         await update.message.reply_text(
-            "❌ YouTube playback फिलहाल disabled है.\n\n"
-            "🎧 अभी direct audio stream URL इस्तेमाल करें."
-        )
-
-        return
-
-    # -------------------------
-    # Basic URL check
-    # -------------------------
-
-    if not (
-        url.startswith("http://")
-        or url.startswith("https://")
-    ):
-
-        await update.message.reply_text(
-            "❌ यह valid audio URL नहीं लग रहा.\n\n"
+            "❌ अभी सिर्फ public Telegram music links supported हैं.\n\n"
             "Example:\n"
-            "/play https://example.com/song.mp3"
+            "/play https://t.me/channelname/123"
         )
 
         return
 
     await update.message.reply_text(
-        "🎵 Audio stream मिल गया...\n"
-        "🎧 Voice Chat में play करने की कोशिश कर रहा हूँ..."
+        "🔎 Telegram audio खोज रहा हूँ..."
     )
 
     try:
 
+        print(
+            f"🔵 TELEGRAM LINK: "
+            f"@{username} / message {message_id}"
+        )
+
+        # -------------------------
+        # Find Telegram channel
+        # -------------------------
+
+        entity = await assistant.get_entity(
+            username
+        )
+
+        print(
+            f"✅ TELEGRAM ENTITY FOUND: @{username}"
+        )
+
+        # -------------------------
+        # Get message
+        # -------------------------
+
+        message = await assistant.get_messages(
+            entity,
+            ids=message_id
+        )
+
+        if not message:
+
+            raise RuntimeError(
+                "Telegram message not found."
+            )
+
+        # -------------------------
+        # Check media
+        # -------------------------
+
+        if not message.media:
+
+            raise RuntimeError(
+                "This Telegram message does not contain audio/media."
+            )
+
+        print(
+            "🎵 Telegram media found."
+        )
+
+        await update.message.reply_text(
+            "🎧 Audio मिल गया!\n"
+            "⬇️ Audio download हो रहा है..."
+        )
+
+        # -------------------------
+        # Download audio
+        # -------------------------
+
+        download_dir = "/tmp/agni_music"
+
+        os.makedirs(
+            download_dir,
+            exist_ok=True
+        )
+
+        file_path = await assistant.download_media(
+            message,
+            file=download_dir
+        )
+
+        if not file_path:
+
+            raise RuntimeError(
+                "Telegram audio download failed."
+            )
+
+        print(
+            f"✅ AUDIO DOWNLOADED: {file_path}"
+        )
+
+        await update.message.reply_text(
+            "🎙️ Audio तैयार है!\n"
+            "▶️ Voice Chat में play कर रहा हूँ..."
+        )
+
+        # -------------------------
+        # Play in VC
+        # -------------------------
+
         stream = MediaStream(
-            url,
+            file_path,
             video_flags=MediaStream.Flags.IGNORE
         )
 
@@ -189,16 +277,12 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stream
         )
 
+        print(
+            f"✅ PLAYBACK STARTED | CHAT ID: {chat_id}"
+        )
+
         await update.message.reply_text(
-            "▶️ Playback started! 🎵🎧"
-        )
-
-        print(
-            f"▶️ PLAYBACK STARTED | CHAT ID: {chat_id}"
-        )
-
-        print(
-            f"🔊 SOURCE: {url}"
+            "▶️ **Playback started!** 🎵🎧"
         )
 
     except Exception as e:
@@ -227,9 +311,15 @@ async def start_assistant():
         "🔵 TELETHON: reading environment variables..."
     )
 
-    api_id = int(os.environ["API_ID"])
+    api_id = int(
+        os.environ["API_ID"]
+    )
+
     api_hash = os.environ["API_HASH"]
-    session_string = os.environ["SESSION_STRING"]
+
+    session_string = os.environ[
+        "SESSION_STRING"
+    ]
 
     print(
         "🔵 TELETHON: creating client..."
@@ -280,7 +370,9 @@ async def start_assistant():
         "🔵 PYTGCALLS: creating client..."
     )
 
-    voice = PyTgCalls(assistant)
+    voice = PyTgCalls(
+        assistant
+    )
 
     print(
         "🔵 PYTGCALLS: starting..."
@@ -305,22 +397,32 @@ def main():
         "🚀 AGNI MUSIC BOT STARTING..."
     )
 
-    bot_token = os.environ.get("BOT_TOKEN")
+    bot_token = os.environ.get(
+        "BOT_TOKEN"
+    )
 
     if not bot_token:
-        print("❌ BOT_TOKEN is missing!")
+        print(
+            "❌ BOT_TOKEN is missing!"
+        )
         return
 
     if not os.environ.get("API_ID"):
-        print("❌ API_ID is missing!")
+        print(
+            "❌ API_ID is missing!"
+        )
         return
 
     if not os.environ.get("API_HASH"):
-        print("❌ API_HASH is missing!")
+        print(
+            "❌ API_HASH is missing!"
+        )
         return
 
     if not os.environ.get("SESSION_STRING"):
-        print("❌ SESSION_STRING is missing!")
+        print(
+            "❌ SESSION_STRING is missing!"
+        )
         return
 
     # -------------------------
@@ -333,7 +435,7 @@ def main():
     ).start()
 
     # -------------------------
-    # ASYNCIO
+    # ASYNCIO LOOP
     # -------------------------
 
     loop = asyncio.new_event_loop()
@@ -341,7 +443,7 @@ def main():
     asyncio.set_event_loop(loop)
 
     # -------------------------
-    # ASSISTANT
+    # TELETHON ASSISTANT
     # -------------------------
 
     try:
@@ -374,24 +476,37 @@ def main():
     )
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("ping", ping)
+        CommandHandler(
+            "ping",
+            ping
+        )
     )
 
     app.add_handler(
-        CommandHandler("join", join)
+        CommandHandler(
+            "join",
+            join
+        )
     )
 
     app.add_handler(
-        CommandHandler("play", play)
+        CommandHandler(
+            "play",
+            play
+        )
     )
 
     print(
         "✅ AGNI MUSIC BOT + "
-        "TELETHON ASSISTANT + PYTGCALLS READY!"
+        "TELETHON ASSISTANT + "
+        "PYTGCALLS READY!"
     )
 
     # -------------------------
