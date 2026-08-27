@@ -1,4 +1,4 @@
 python-telegram-bot
 telethon
-pytgcalls
+py-tgcalls[telethon]
 tgcrypto
