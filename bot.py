@@ -16,23 +16,26 @@ from telethon.sessions import StringSession
 from pytgcalls import PyTgCalls
 from pytgcalls.types import GroupCallConfig
 
+import yt_dlp
 
-# =========================
+
+# =========================================================
 # GLOBAL CLIENTS
-# =========================
+# =========================================================
 
 assistant = None
 voice = None
 
 
-# =========================
+# =========================================================
 # RENDER HEALTH SERVER
-# =========================
+# =========================================================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(
             b"Agni Music Bot is running!"
@@ -61,36 +64,55 @@ def run_server():
     server.serve_forever()
 
 
-# =========================
-# TELEGRAM BOT COMMANDS
-# =========================
+# =========================================================
+# /START
+# =========================================================
 
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    print(
+        "📩 /start received",
+        flush=True
+    )
+
     await update.message.reply_text(
         "👋 Hello!\n\n"
         "🎵 Agni Music Bot is online!\n"
-        "🤖 Telethon assistant system is connected."
+        "🤖 Telethon assistant is connected.\n\n"
+        "Commands:\n"
+        "/ping\n"
+        "/join\n"
+        "/play <YouTube URL>\n"
+        "/leave"
     )
 
+
+# =========================================================
+# /PING
+# =========================================================
 
 async def ping(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    print(
+        "📩 /ping received",
+        flush=True
+    )
+
     await update.message.reply_text(
         "🏓 Pong!\n\n"
-        "✅ Bot is online!"
+        "✅ Agni Music Bot is online!"
     )
 
 
-# =========================
-# ACTUAL VC JOIN
-# =========================
+# =========================================================
+# /JOIN
+# =========================================================
 
 async def join(
     update: Update,
@@ -100,7 +122,7 @@ async def join(
     chat_id = update.effective_chat.id
 
     print(
-        f"🎤 JOIN COMMAND RECEIVED | CHAT ID: {chat_id}",
+        f"🎤 /join received | CHAT ID: {chat_id}",
         flush=True
     )
 
@@ -110,21 +132,14 @@ async def join(
             "❌ PyTgCalls is not ready."
         )
 
-        print(
-            "❌ JOIN ERROR: voice client is None",
-            flush=True
-        )
-
         return
-
-    await update.message.reply_text(
-        "🎤 Joining the active VC..."
-    )
 
     try:
 
-        # Do NOT create a new voice chat.
-        # Join the already-active VC.
+        await update.message.reply_text(
+            "🎤 Joining Voice Chat..."
+        )
+
         config = GroupCallConfig(
             auto_start=False
         )
@@ -141,26 +156,203 @@ async def join(
         )
 
         await update.message.reply_text(
-            "✅ Assistant joined the Voice Chat! 🎤\n\n"
-            "🎵 Agni Music is ready."
+            "✅ Assistant joined the Voice Chat! 🎧"
         )
 
     except Exception as e:
 
         print(
-            f"❌ VC JOIN ERROR: {type(e).__name__}: {e}",
+            f"❌ JOIN ERROR: "
+            f"{type(e).__name__}: {e}",
             flush=True
         )
 
         await update.message.reply_text(
-            "❌ VC join failed.\n\n"
-            f"Error: {type(e).__name__}: {e}"
+            f"❌ VC join failed.\n\n"
+            f"{type(e).__name__}: {e}"
         )
 
 
-# =========================
-# LEAVE VC
-# =========================
+# =========================================================
+# YOUTUBE AUDIO EXTRACTION
+# =========================================================
+
+def extract_youtube_audio(url):
+
+    print(
+        f"🔎 YouTube extraction started: {url}",
+        flush=True
+    )
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+        info = ydl.extract_info(
+            url,
+            download=False
+        )
+
+        if not info:
+
+            raise RuntimeError(
+                "YouTube information could not be extracted."
+            )
+
+        stream_url = info.get("url")
+
+        title = info.get(
+            "title",
+            "Unknown song"
+        )
+
+        if not stream_url:
+
+            raise RuntimeError(
+                "No audio stream was found."
+            )
+
+        print(
+            f"✅ YouTube extracted: {title}",
+            flush=True
+        )
+
+        return title, stream_url
+
+
+# =========================================================
+# /PLAY
+# =========================================================
+
+async def play(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+
+    print(
+        f"🎵 /play received | CHAT ID: {chat_id}",
+        flush=True
+    )
+
+    # -----------------------------------------------------
+    # CHECK ARGUMENT
+    # -----------------------------------------------------
+
+    if not context.args:
+
+        await update.message.reply_text(
+            "🎵 Please send a YouTube URL.\n\n"
+            "Example:\n"
+            "/play https://www.youtube.com/watch?v=..."
+        )
+
+        print(
+            "⚠️ /play received without URL",
+            flush=True
+        )
+
+        return
+
+    youtube_url = context.args[0]
+
+    print(
+        f"🔗 YouTube URL: {youtube_url}",
+        flush=True
+    )
+
+    # -----------------------------------------------------
+    # CHECK VC CLIENT
+    # -----------------------------------------------------
+
+    if voice is None:
+
+        await update.message.reply_text(
+            "❌ PyTgCalls is not ready."
+        )
+
+        print(
+            "❌ PLAY ERROR: voice client is None",
+            flush=True
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # MESSAGE
+    # -----------------------------------------------------
+
+    try:
+
+        await update.message.reply_text(
+            "🔎 YouTube audio खोज रहा हूँ..."
+        )
+
+        # -------------------------------------------------
+        # EXTRACT AUDIO
+        # -------------------------------------------------
+
+        title, stream_url = await asyncio.to_thread(
+            extract_youtube_audio,
+            youtube_url
+        )
+
+        await update.message.reply_text(
+            f"🎵 Found:\n{title}\n\n"
+            f"▶️ Playing..."
+        )
+
+        # -------------------------------------------------
+        # PLAY AUDIO
+        # -------------------------------------------------
+
+        print(
+            f"🎧 Starting playback: {title}",
+            flush=True
+        )
+
+        config = GroupCallConfig(
+            auto_start=False
+        )
+
+        await voice.play(
+            chat_id,
+            stream_url,
+            config=config
+        )
+
+        print(
+            f"✅ PLAYBACK STARTED: {title}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            "🎧 Now playing! 🔥"
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ PLAY ERROR: "
+            f"{type(e).__name__}: {e}",
+            flush=True
+        )
+
+        await update.message.reply_text(
+            "❌ Playback failed.\n\n"
+            f"{type(e).__name__}: {e}"
+        )
+
+
+# =========================================================
+# /LEAVE
+# =========================================================
 
 async def leave(
     update: Update,
@@ -170,7 +362,7 @@ async def leave(
     chat_id = update.effective_chat.id
 
     print(
-        f"🚪 LEAVE COMMAND RECEIVED | CHAT ID: {chat_id}",
+        f"🚪 /leave received | CHAT ID: {chat_id}",
         flush=True
     )
 
@@ -200,20 +392,20 @@ async def leave(
     except Exception as e:
 
         print(
-            f"❌ VC LEAVE ERROR: "
+            f"❌ LEAVE ERROR: "
             f"{type(e).__name__}: {e}",
             flush=True
         )
 
         await update.message.reply_text(
-            "❌ Leave failed.\n\n"
-            f"Error: {type(e).__name__}: {e}"
+            f"❌ Leave failed:\n"
+            f"{type(e).__name__}: {e}"
         )
 
 
-# =========================
+# =========================================================
 # TELETHON ASSISTANT
-# =========================
+# =========================================================
 
 async def start_assistant():
 
@@ -226,7 +418,9 @@ async def start_assistant():
         os.environ["API_ID"]
     )
 
-    api_hash = os.environ["API_HASH"]
+    api_hash = os.environ[
+        "API_HASH"
+    ]
 
     session_string = os.environ[
         "SESSION_STRING"
@@ -277,9 +471,9 @@ async def start_assistant():
         flush=True
     )
 
-    # =========================
+    # -----------------------------------------------------
     # PYTGCALLS
-    # =========================
+    # -----------------------------------------------------
 
     print(
         "🔵 PYTGCALLS: creating client...",
@@ -308,9 +502,9 @@ async def start_assistant():
     )
 
 
-# =========================
+# =========================================================
 # MAIN
-# =========================
+# =========================================================
 
 def main():
 
@@ -318,13 +512,13 @@ def main():
     global voice
 
     print(
-        "🔥 AGNI TEST: bot.py STARTED!",
+        "🔥 AGNI MUSIC BOT STARTING...",
         flush=True
     )
 
-    # =========================
+    # -----------------------------------------------------
     # ENVIRONMENT VARIABLES
-    # =========================
+    # -----------------------------------------------------
 
     bot_token = os.environ.get(
         "BOT_TOKEN"
@@ -366,26 +560,26 @@ def main():
 
         return
 
-    # =========================
+    # -----------------------------------------------------
     # HEALTH SERVER
-    # =========================
+    # -----------------------------------------------------
 
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
-    # =========================
-    # ASYNCIO LOOP
-    # =========================
+    # -----------------------------------------------------
+    # EVENT LOOP
+    # -----------------------------------------------------
 
     loop = asyncio.new_event_loop()
 
     asyncio.set_event_loop(loop)
 
-    # =========================
+    # -----------------------------------------------------
     # TELETHON + PYTGCALLS
-    # =========================
+    # -----------------------------------------------------
 
     try:
 
@@ -405,9 +599,9 @@ def main():
 
         return
 
-    # =========================
+    # -----------------------------------------------------
     # TELEGRAM BOT
-    # =========================
+    # -----------------------------------------------------
 
     print(
         "🔵 Creating Telegram bot...",
@@ -419,6 +613,10 @@ def main():
         .token(bot_token)
         .build()
     )
+
+    # -----------------------------------------------------
+    # COMMAND HANDLERS
+    # -----------------------------------------------------
 
     app.add_handler(
         CommandHandler(
@@ -443,21 +641,51 @@ def main():
 
     app.add_handler(
         CommandHandler(
+            "play",
+            play
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
             "leave",
             leave
         )
     )
 
     print(
-        "✅ AGNI MUSIC BOT + "
-        "TELETHON ASSISTANT + "
-        "PYTGCALLS READY!",
+        "✅ ALL COMMAND HANDLERS REGISTERED:",
         flush=True
     )
 
-    # =========================
-    # START BOT
-    # =========================
+    print(
+        "   /start",
+        flush=True
+    )
+
+    print(
+        "   /ping",
+        flush=True
+    )
+
+    print(
+        "   /join",
+        flush=True
+    )
+
+    print(
+        "   /play",
+        flush=True
+    )
+
+    print(
+        "   /leave",
+        flush=True
+    )
+
+    # -----------------------------------------------------
+    # START POLLING
+    # -----------------------------------------------------
 
     try:
 
@@ -546,9 +774,9 @@ def main():
         )
 
 
-# =========================
+# =========================================================
 # RUN
-# =========================
+# =========================================================
 
 if __name__ == "__main__":
 
