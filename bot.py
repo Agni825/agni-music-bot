@@ -139,7 +139,7 @@ async def join(
 
 # =========================
 # /PLAY
-# JAMENDO MUSIC SEARCH
+# JAMENDO SEARCH
 # =========================
 
 async def play(
@@ -168,14 +168,14 @@ async def play(
     ).strip()
 
     await update.message.reply_text(
-        f"🔎 Jamendo par "
-        f"'{query}' search kar raha hoon..."
+        f"🔎 Jamendo par '{query}' "
+        f"search kar raha hoon..."
     )
 
     try:
 
         # -------------------------
-        # GET JAMENDO CLIENT ID
+        # JAMENDO CLIENT ID
         # -------------------------
 
         client_id = os.environ[
@@ -183,7 +183,7 @@ async def play(
         ]
 
         # -------------------------
-        # JAMENDO SEARCH
+        # SEARCH JAMENDO
         # -------------------------
 
         params = urllib.parse.urlencode({
@@ -203,6 +203,10 @@ async def play(
             f"🔎 JAMENDO SEARCH: {query}"
         )
 
+        # -------------------------
+        # REQUEST
+        # -------------------------
+
         with urllib.request.urlopen(
             search_url,
             timeout=20
@@ -214,14 +218,14 @@ async def play(
                 )
             )
 
+        # -------------------------
+        # RESULTS
+        # -------------------------
+
         results = data.get(
             "results",
             []
         )
-
-        # -------------------------
-        # NO RESULT
-        # -------------------------
 
         if not results:
 
@@ -233,6 +237,10 @@ async def play(
 
         track = results[0]
 
+        # -------------------------
+        # TRACK INFORMATION
+        # -------------------------
+
         track_name = track.get(
             "name",
             "Unknown Track"
@@ -243,106 +251,61 @@ async def play(
             "Unknown Artist"
         )
 
-        track_id = track.get(
-            "id"
-        )
-
-        if not track_id:
-
-            raise RuntimeError(
-                "Jamendo track ID missing."
-            )
-
-        await update.message.reply_text(
-            f"🎵 Found:\n"
-            f"**{track_name}**\n"
-            f"👤 {artist}\n\n"
-            f"🎧 Stream prepare ho raha hai..."
-        )
-
-        # -------------------------
-        # GET STREAM URL
-        # -------------------------
-
-        stream_params = urllib.parse.urlencode({
-            "client_id": client_id,
-            "format": "json",
-            "id": track_id,
-            "action": "stream"
-        })
-
-        stream_url = (
-            "https://api.jamendo.com/v3.0/"
-            "tracks/file/?"
-            + stream_params
-        )
-
-        print(
-            "🔵 JAMENDO STREAM REQUEST"
-        )
-
-        with urllib.request.urlopen(
-            stream_url,
-            timeout=20
-        ) as response:
-
-            stream_data = json.loads(
-                response.read().decode(
-                    "utf-8"
-                )
-            )
-
-        stream_results = stream_data.get(
-            "results",
-            []
-        )
-
-        if not stream_results:
-
-            raise RuntimeError(
-                "Jamendo stream unavailable."
-            )
-
-        audio_url = stream_results[0].get(
+        audio_url = track.get(
             "audio"
         )
+
+        # -------------------------
+        # CHECK AUDIO URL
+        # -------------------------
 
         if not audio_url:
 
             raise RuntimeError(
-                "Jamendo audio URL missing."
+                "Jamendo audio URL nahi mila."
             )
+
+        print(
+            f"✅ TRACK FOUND: "
+            f"{track_name} - {artist}"
+        )
 
         print(
             "✅ JAMENDO AUDIO URL FOUND"
         )
 
-        # -------------------------
-        # PLAY IN VOICE CHAT
-        # -------------------------
-
         await update.message.reply_text(
-            "🎙️ Audio ready!\n"
-            "▶️ Voice Chat me play kar raha hoon..."
+            f"🎵 **Found!**\n\n"
+            f"🎶 {track_name}\n"
+            f"👤 {artist}\n\n"
+            f"🎧 Voice Chat me play kar raha hoon..."
         )
 
-            stream = MediaStream(
-        audio_url,
-        video_flags=MediaStream.Flags.IGNORE
-    )
+        # -------------------------
+        # CREATE MEDIA STREAM
+        # -------------------------
 
-    await voice.play(
-        chat_id,
-        stream
-    )
+        stream = MediaStream(
+            audio_url,
+            video_flags=MediaStream.Flags.IGNORE
+        )
 
-    print(
-        f"✅ PLAYBACK STARTED | "
-        f"{track_name} - {artist}"
-    )
+        # -------------------------
+        # PLAY IN VC
+        # -------------------------
+
+        await voice.play(
+            chat_id,
+            stream
+        )
+
+        print(
+            f"✅ PLAYBACK STARTED | "
+            f"{track_name} - {artist}"
+        )
 
         await update.message.reply_text(
-            f"▶️ Now Playing 🎵\n\n"
+            f"▶️ **Now Playing** 🎵\n\n"
             f"🎶 {track_name}\n"
             f"👤 {artist}"
         )
@@ -369,13 +332,25 @@ async def start_assistant():
     global assistant
     global voice
 
-    print("🔵 TELETHON: reading environment variables...")
+    print(
+        "🔵 TELETHON: reading environment variables..."
+    )
 
-    api_id = int(os.environ["API_ID"])
-    api_hash = os.environ["API_HASH"]
-    session_string = os.environ["SESSION_STRING"]
+    api_id = int(
+        os.environ["API_ID"]
+    )
 
-    print("🔵 TELETHON: creating client...")
+    api_hash = os.environ[
+        "API_HASH"
+    ]
+
+    session_string = os.environ[
+        "SESSION_STRING"
+    ]
+
+    print(
+        "🔵 TELETHON: creating client..."
+    )
 
     assistant = TelegramClient(
         StringSession(session_string),
@@ -383,18 +358,23 @@ async def start_assistant():
         api_hash
     )
 
-    print("🔵 TELETHON: connecting...")
+    print(
+        "🔵 TELETHON: connecting..."
+    )
 
     await assistant.connect()
 
     if not await assistant.is_user_authorized():
 
-        print("❌ TELETHON: session is not authorized!")
+        print(
+            "❌ TELETHON: session is not authorized!"
+        )
 
         await assistant.disconnect()
 
         raise RuntimeError(
-            "Telethon SESSION_STRING is invalid or expired."
+            "Telethon SESSION_STRING "
+            "is invalid or expired."
         )
 
     me = await assistant.get_me()
@@ -410,17 +390,27 @@ async def start_assistant():
         f"{me.first_name} ({username})"
     )
 
-    print("🔵 PYTGCALLS: creating client...")
+    # -------------------------
+    # PYTGCALLS
+    # -------------------------
+
+    print(
+        "🔵 PYTGCALLS: creating client..."
+    )
 
     voice = PyTgCalls(
         assistant
     )
 
-    print("🔵 PYTGCALLS: starting...")
+    print(
+        "🔵 PYTGCALLS: starting..."
+    )
 
     await voice.start()
 
-    print("✅ PYTGCALLS CONNECTED!")
+    print(
+        "✅ PYTGCALLS CONNECTED!"
+    )
 
     return assistant, voice
 
@@ -431,37 +421,82 @@ async def start_assistant():
 
 def main():
 
-    print("🚀 AGNI MUSIC BOT STARTING...")
+    print(
+        "🚀 AGNI MUSIC BOT STARTING..."
+    )
 
-    bot_token = os.environ.get("BOT_TOKEN")
+    # -------------------------
+    # ENVIRONMENT VARIABLES
+    # -------------------------
+
+    bot_token = os.environ.get(
+        "BOT_TOKEN"
+    )
 
     if not bot_token:
-        print("❌ BOT_TOKEN is missing!")
+
+        print(
+            "❌ BOT_TOKEN is missing!"
+        )
+
         return
 
     if not os.environ.get("API_ID"):
-        print("❌ API_ID is missing!")
+
+        print(
+            "❌ API_ID is missing!"
+        )
+
         return
 
     if not os.environ.get("API_HASH"):
-        print("❌ API_HASH is missing!")
+
+        print(
+            "❌ API_HASH is missing!"
+        )
+
         return
 
-    if not os.environ.get("SESSION_STRING"):
-        print("❌ SESSION_STRING is missing!")
+    if not os.environ.get(
+        "SESSION_STRING"
+    ):
+
+        print(
+            "❌ SESSION_STRING is missing!"
+        )
+
         return
 
-    if not os.environ.get("JAMENDO_CLIENT_ID"):
-        print("❌ JAMENDO_CLIENT_ID is missing!")
+    if not os.environ.get(
+        "JAMENDO_CLIENT_ID"
+    ):
+
+        print(
+            "❌ JAMENDO_CLIENT_ID is missing!"
+        )
+
         return
+
+    # -------------------------
+    # HEALTH SERVER
+    # -------------------------
 
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
+    # -------------------------
+    # ASYNCIO LOOP
+    # -------------------------
+
     loop = asyncio.new_event_loop()
+
     asyncio.set_event_loop(loop)
+
+    # -------------------------
+    # START ASSISTANT
+    # -------------------------
 
     try:
 
@@ -478,7 +513,13 @@ def main():
 
         return
 
-    print("🔵 Creating Telegram bot...")
+    # -------------------------
+    # TELEGRAM BOT
+    # -------------------------
+
+    print(
+        "🔵 Creating Telegram bot..."
+    )
 
     app = (
         ApplicationBuilder()
@@ -486,20 +527,36 @@ def main():
         .build()
     )
 
+    # -------------------------
+    # COMMAND HANDLERS
+    # -------------------------
+
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("ping", ping)
+        CommandHandler(
+            "ping",
+            ping
+        )
     )
 
     app.add_handler(
-        CommandHandler("join", join)
+        CommandHandler(
+            "join",
+            join
+        )
     )
 
     app.add_handler(
-        CommandHandler("play", play)
+        CommandHandler(
+            "play",
+            play
+        )
     )
 
     print(
@@ -508,6 +565,10 @@ def main():
         "PYTGCALLS + "
         "JAMENDO READY!"
     )
+
+    # -------------------------
+    # START BOT
+    # -------------------------
 
     try:
 
@@ -524,7 +585,8 @@ def main():
         )
 
         print(
-            "🎵 AGNI MUSIC BOT IS FULLY RUNNING!"
+            "🎵 AGNI MUSIC BOT "
+            "IS FULLY RUNNING!"
         )
 
         loop.run_forever()
@@ -538,34 +600,45 @@ def main():
 
     finally:
 
-        print("🔵 Shutting down...")
+        print(
+            "🔵 Shutting down..."
+        )
 
         try:
+
             loop.run_until_complete(
                 app.updater.stop()
             )
+
         except Exception:
             pass
 
         try:
+
             loop.run_until_complete(
                 app.stop()
             )
+
         except Exception:
             pass
 
         try:
+
             loop.run_until_complete(
                 app.shutdown()
             )
+
         except Exception:
             pass
 
         try:
+
             if assistant:
+
                 loop.run_until_complete(
                     assistant.disconnect()
                 )
+
         except Exception:
             pass
 
@@ -579,4 +652,5 @@ def main():
 # =========================
 
 if __name__ == "__main__":
+
     main()
