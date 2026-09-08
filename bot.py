@@ -331,4 +331,252 @@ async def play(
             video_flags=MediaStream.Flags.IGNORE
         )
 
-        await voice.play
+                await voice.play(
+            chat_id,
+            stream
+        )
+
+        print(
+            f"✅ PLAYBACK STARTED | "
+            f"{track_name} - {artist}"
+        )
+
+        await update.message.reply_text(
+            f"▶️ Now Playing 🎵\n\n"
+            f"🎶 {track_name}\n"
+            f"👤 {artist}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ JAMENDO PLAY ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        await update.message.reply_text(
+            "❌ Playback failed.\n\n"
+            f"{type(e).__name__}: {e}"
+        )
+
+
+# =========================
+# TELETHON + PYTGCALLS
+# =========================
+
+async def start_assistant():
+
+    global assistant
+    global voice
+
+    print("🔵 TELETHON: reading environment variables...")
+
+    api_id = int(os.environ["API_ID"])
+    api_hash = os.environ["API_HASH"]
+    session_string = os.environ["SESSION_STRING"]
+
+    print("🔵 TELETHON: creating client...")
+
+    assistant = TelegramClient(
+        StringSession(session_string),
+        api_id,
+        api_hash
+    )
+
+    print("🔵 TELETHON: connecting...")
+
+    await assistant.connect()
+
+    if not await assistant.is_user_authorized():
+
+        print("❌ TELETHON: session is not authorized!")
+
+        await assistant.disconnect()
+
+        raise RuntimeError(
+            "Telethon SESSION_STRING is invalid or expired."
+        )
+
+    me = await assistant.get_me()
+
+    username = (
+        f"@{me.username}"
+        if me.username
+        else "@None"
+    )
+
+    print(
+        f"✅ ASSISTANT CONNECTED: "
+        f"{me.first_name} ({username})"
+    )
+
+    print("🔵 PYTGCALLS: creating client...")
+
+    voice = PyTgCalls(
+        assistant
+    )
+
+    print("🔵 PYTGCALLS: starting...")
+
+    await voice.start()
+
+    print("✅ PYTGCALLS CONNECTED!")
+
+    return assistant, voice
+
+
+# =========================
+# MAIN
+# =========================
+
+def main():
+
+    print("🚀 AGNI MUSIC BOT STARTING...")
+
+    bot_token = os.environ.get("BOT_TOKEN")
+
+    if not bot_token:
+        print("❌ BOT_TOKEN is missing!")
+        return
+
+    if not os.environ.get("API_ID"):
+        print("❌ API_ID is missing!")
+        return
+
+    if not os.environ.get("API_HASH"):
+        print("❌ API_HASH is missing!")
+        return
+
+    if not os.environ.get("SESSION_STRING"):
+        print("❌ SESSION_STRING is missing!")
+        return
+
+    if not os.environ.get("JAMENDO_CLIENT_ID"):
+        print("❌ JAMENDO_CLIENT_ID is missing!")
+        return
+
+    Thread(
+        target=run_server,
+        daemon=True
+    ).start()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+
+        loop.run_until_complete(
+            start_assistant()
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ ASSISTANT ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        return
+
+    print("🔵 Creating Telegram bot...")
+
+    app = (
+        ApplicationBuilder()
+        .token(bot_token)
+        .build()
+    )
+
+    app.add_handler(
+        CommandHandler("start", start)
+    )
+
+    app.add_handler(
+        CommandHandler("ping", ping)
+    )
+
+    app.add_handler(
+        CommandHandler("join", join)
+    )
+
+    app.add_handler(
+        CommandHandler("play", play)
+    )
+
+    print(
+        "✅ AGNI MUSIC BOT + "
+        "TELETHON ASSISTANT + "
+        "PYTGCALLS + "
+        "JAMENDO READY!"
+    )
+
+    try:
+
+        loop.run_until_complete(
+            app.initialize()
+        )
+
+        loop.run_until_complete(
+            app.start()
+        )
+
+        loop.run_until_complete(
+            app.updater.start_polling()
+        )
+
+        print(
+            "🎵 AGNI MUSIC BOT IS FULLY RUNNING!"
+        )
+
+        loop.run_forever()
+
+    except Exception as e:
+
+        print(
+            f"❌ TELEGRAM BOT ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+    finally:
+
+        print("🔵 Shutting down...")
+
+        try:
+            loop.run_until_complete(
+                app.updater.stop()
+            )
+        except Exception:
+            pass
+
+        try:
+            loop.run_until_complete(
+                app.stop()
+            )
+        except Exception:
+            pass
+
+        try:
+            loop.run_until_complete(
+                app.shutdown()
+            )
+        except Exception:
+            pass
+
+        try:
+            if assistant:
+                loop.run_until_complete(
+                    assistant.disconnect()
+                )
+        except Exception:
+            pass
+
+        print(
+            "🛑 AGNI MUSIC BOT STOPPED."
+        )
+
+
+# =========================
+# RUN
+# =========================
+
+if __name__ == "__main__":
+    main()
