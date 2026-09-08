@@ -326,20 +326,20 @@ async def play(
             "▶️ Voice Chat me play kar raha hoon..."
         )
 
-        stream = MediaStream(
-            audio_url,
-            video_flags=MediaStream.Flags.IGNORE
-        )
+            stream = MediaStream(
+        audio_url,
+        video_flags=MediaStream.Flags.IGNORE
+    )
 
-                await voice.play(
-            chat_id,
-            stream
-        )
+    await voice.play(
+        chat_id,
+        stream
+    )
 
-        print(
-            f"✅ PLAYBACK STARTED | "
-            f"{track_name} - {artist}"
-        )
+    print(
+        f"✅ PLAYBACK STARTED | "
+        f"{track_name} - {artist}"
+    )
 
         await update.message.reply_text(
             f"▶️ Now Playing 🎵\n\n"
