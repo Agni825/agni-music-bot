@@ -19,6 +19,8 @@ from telethon.sessions import StringSession
 
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
+from pytgcalls import filters
+from pytgcalls.types import Update as PyTgCallsUpdate
 
 
 # =========================
@@ -62,6 +64,247 @@ def run_server():
 
 assistant = None
 voice = None
+
+# Each chat has its own queue
+queues = {}
+
+# Current song in each chat
+current_tracks = {}
+
+# Prevent multiple auto-next operations
+playing_next = set()
+
+
+# =========================
+# QUEUE HELPERS
+# =========================
+
+def get_queue(chat_id):
+
+    if chat_id not in queues:
+        queues[chat_id] = []
+
+    return queues[chat_id]
+
+
+def add_to_queue(chat_id, track):
+
+    queue = get_queue(chat_id)
+
+    queue.append(track)
+
+
+def remove_next_from_queue(chat_id):
+
+    queue = get_queue(chat_id)
+
+    if not queue:
+        return None
+
+    return queue.pop(0)
+
+
+# =========================
+# SEARCH JAMENDO
+# =========================
+
+async def search_jamendo(query):
+
+    client_id = os.environ[
+        "JAMENDO_CLIENT_ID"
+    ]
+
+    params = urllib.parse.urlencode({
+        "client_id": client_id,
+        "format": "json",
+        "limit": 1,
+        "namesearch": query,
+        "audioformat": "mp32"
+    })
+
+    search_url = (
+        "https://api.jamendo.com/v3.0/tracks/"
+        "?" + params
+    )
+
+    print(
+        f"🔎 JAMENDO SEARCH: {query}"
+    )
+
+    # urllib is blocking, so run it in a thread
+    def request():
+
+        with urllib.request.urlopen(
+            search_url,
+            timeout=20
+        ) as response:
+
+            return json.loads(
+                response.read().decode(
+                    "utf-8"
+                )
+            )
+
+    data = await asyncio.to_thread(
+        request
+    )
+
+    results = data.get(
+        "results",
+        []
+    )
+
+    if not results:
+        return None
+
+    track = results[0]
+
+    track_name = track.get(
+        "name",
+        "Unknown Track"
+    )
+
+    artist = track.get(
+        "artist_name",
+        "Unknown Artist"
+    )
+
+    audio_url = track.get(
+        "audio"
+    )
+
+    if not audio_url:
+        return None
+
+    return {
+        "name": track_name,
+        "artist": artist,
+        "audio": audio_url,
+    }
+
+
+# =========================
+# PLAY TRACK
+# =========================
+
+async def play_track(chat_id, track):
+
+    global current_tracks
+
+    audio_url = track.get(
+        "audio"
+    )
+
+    if not audio_url:
+        raise RuntimeError(
+            "Audio URL nahi mila."
+        )
+
+    stream = MediaStream(
+        audio_url,
+        video_flags=MediaStream.Flags.IGNORE
+    )
+
+    await voice.play(
+        chat_id,
+        stream
+    )
+
+    current_tracks[chat_id] = track
+
+    print(
+        f"▶️ PLAYING | "
+        f"{track['name']} - "
+        f"{track['artist']}"
+    )
+
+
+# =========================
+# AUTO NEXT
+# =========================
+
+async def play_next(chat_id):
+
+    if chat_id in playing_next:
+        return
+
+    playing_next.add(chat_id)
+
+    try:
+
+        next_track = remove_next_from_queue(
+            chat_id
+        )
+
+        if next_track is None:
+
+            current_tracks.pop(
+                chat_id,
+                None
+            )
+
+            print(
+                f"⏹️ QUEUE EMPTY | "
+                f"CHAT ID: {chat_id}"
+            )
+
+            return
+
+        await play_track(
+            chat_id,
+            next_track
+        )
+
+        print(
+            f"⏭️ AUTO NEXT | "
+            f"{next_track['name']}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ AUTO NEXT ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+    finally:
+
+        playing_next.discard(
+            chat_id
+        )
+
+
+# =========================
+# PYTGCALLS STREAM END
+# =========================
+
+@voice.on_update(
+    filters.stream_end
+)
+async def stream_end_handler(
+    client,
+    update
+):
+
+    try:
+
+        chat_id = update.chat_id
+
+        print(
+            f"🔔 STREAM ENDED | "
+            f"CHAT ID: {chat_id}"
+        )
+
+        await play_next(
+            chat_id
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ STREAM END ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
 
 
 # =========================
@@ -112,7 +355,9 @@ async def join(
 
     try:
 
-        await voice.play(chat_id)
+        await voice.play(
+            chat_id
+        )
 
         await update.message.reply_text(
             "✅ Assistant joined the Voice Chat! 🎧\n\n"
@@ -139,7 +384,6 @@ async def join(
 
 # =========================
 # /PLAY
-# JAMENDO SEARCH
 # =========================
 
 async def play(
@@ -148,10 +392,6 @@ async def play(
 ):
 
     chat_id = update.effective_chat.id
-
-    # -------------------------
-    # CHECK QUERY
-    # -------------------------
 
     if not context.args:
 
@@ -168,152 +408,78 @@ async def play(
     ).strip()
 
     await update.message.reply_text(
-        f"🔎 Jamendo par '{query}' "
-        f"search kar raha hoon..."
+        f"🔎 '{query}' search kar raha hoon..."
     )
 
     try:
 
-        # -------------------------
-        # JAMENDO CLIENT ID
-        # -------------------------
-
-        client_id = os.environ[
-            "JAMENDO_CLIENT_ID"
-        ]
-
-        # -------------------------
-        # SEARCH JAMENDO
-        # -------------------------
-
-        params = urllib.parse.urlencode({
-            "client_id": client_id,
-            "format": "json",
-            "limit": 1,
-            "namesearch": query,
-            "audioformat": "mp32"
-        })
-
-        search_url = (
-            "https://api.jamendo.com/v3.0/tracks/"
-            "?" + params
+        track = await search_jamendo(
+            query
         )
 
-        print(
-            f"🔎 JAMENDO SEARCH: {query}"
-        )
-
-        # -------------------------
-        # REQUEST
-        # -------------------------
-
-        with urllib.request.urlopen(
-            search_url,
-            timeout=20
-        ) as response:
-
-            data = json.loads(
-                response.read().decode(
-                    "utf-8"
-                )
-            )
-
-        # -------------------------
-        # RESULTS
-        # -------------------------
-
-        results = data.get(
-            "results",
-            []
-        )
-
-        if not results:
+        if not track:
 
             await update.message.reply_text(
-                "❌ Jamendo par koi track nahi mila."
+                "❌ Koi matching track nahi mila."
             )
 
             return
 
-        track = results[0]
-
-        # -------------------------
-        # TRACK INFORMATION
-        # -------------------------
-
-        track_name = track.get(
-            "name",
-            "Unknown Track"
-        )
-
-        artist = track.get(
-            "artist_name",
-            "Unknown Artist"
-        )
-
-        audio_url = track.get(
-            "audio"
-        )
-
-        # -------------------------
-        # CHECK AUDIO URL
-        # -------------------------
-
-        if not audio_url:
-
-            raise RuntimeError(
-                "Jamendo audio URL nahi mila."
-            )
-
         print(
             f"✅ TRACK FOUND: "
-            f"{track_name} - {artist}"
+            f"{track['name']} - "
+            f"{track['artist']}"
         )
 
-        print(
-            "✅ JAMENDO AUDIO URL FOUND"
-        )
+        # =====================
+        # CHECK CURRENT SONG
+        # =====================
 
-        await update.message.reply_text(
-            f"🎵 **Found!**\n\n"
-            f"🎶 {track_name}\n"
-            f"👤 {artist}\n\n"
-            f"🎧 Voice Chat me play kar raha hoon..."
-        )
+        if chat_id in current_tracks:
 
-        # -------------------------
-        # CREATE MEDIA STREAM
-        # -------------------------
+            add_to_queue(
+                chat_id,
+                track
+            )
 
-        stream = MediaStream(
-            audio_url,
-            video_flags=MediaStream.Flags.IGNORE
-        )
+            position = len(
+                get_queue(chat_id)
+            )
 
-        # -------------------------
-        # PLAY IN VC
-        # -------------------------
+            await update.message.reply_text(
+                f"➕ **Added to Queue**\n\n"
+                f"🎶 {track['name']}\n"
+                f"👤 {track['artist']}\n\n"
+                f"📋 Queue position: {position}"
+            )
 
-        await voice.play(
+            print(
+                f"➕ QUEUED | "
+                f"{track['name']} | "
+                f"POSITION: {position}"
+            )
+
+            return
+
+        # =====================
+        # NOTHING PLAYING
+        # =====================
+
+        await play_track(
             chat_id,
-            stream
-        )
-
-        print(
-            f"✅ PLAYBACK STARTED | "
-            f"{track_name} - {artist}"
+            track
         )
 
         await update.message.reply_text(
             f"▶️ **Now Playing** 🎵\n\n"
-            f"🎶 {track_name}\n"
-            f"👤 {artist}"
+            f"🎶 {track['name']}\n"
+            f"👤 {track['artist']}"
         )
 
     except Exception as e:
 
         print(
-            f"❌ JAMENDO PLAY ERROR: "
+            f"❌ PLAY ERROR: "
             f"{type(e).__name__}: {e}"
         )
 
@@ -321,6 +487,173 @@ async def play(
             "❌ Playback failed.\n\n"
             f"{type(e).__name__}: {e}"
         )
+
+
+# =========================
+# /SKIP
+# =========================
+
+async def skip(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+
+    if chat_id not in current_tracks:
+
+        await update.message.reply_text(
+            "❌ Abhi koi song nahi chal raha."
+        )
+
+        return
+
+    try:
+
+        queue = get_queue(
+            chat_id
+        )
+
+        # Stop current song
+        await voice.leave_call(
+            chat_id
+        )
+
+        current_tracks.pop(
+            chat_id,
+            None
+        )
+
+        if not queue:
+
+            await update.message.reply_text(
+                "⏭️ Current song skipped.\n\n"
+                "📭 Queue empty hai."
+            )
+
+            print(
+                f"⏭️ SKIPPED | "
+                f"QUEUE EMPTY | "
+                f"CHAT ID: {chat_id}"
+            )
+
+            return
+
+        next_track = remove_next_from_queue(
+            chat_id
+        )
+
+        await play_track(
+            chat_id,
+            next_track
+        )
+
+        await update.message.reply_text(
+            f"⏭️ **Skipped!**\n\n"
+            f"▶️ Now Playing:\n"
+            f"🎶 {next_track['name']}\n"
+            f"👤 {next_track['artist']}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ SKIP ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        await update.message.reply_text(
+            "❌ Skip failed.\n\n"
+            f"{type(e).__name__}: {e}"
+        )
+
+
+# =========================
+# /QUEUE
+# =========================
+
+async def queue_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+
+    queue = get_queue(
+        chat_id
+    )
+
+    current = current_tracks.get(
+        chat_id
+    )
+
+    if not current and not queue:
+
+        await update.message.reply_text(
+            "📭 Queue empty hai."
+        )
+
+        return
+
+    text = "🎵 **Agni Music Queue**\n\n"
+
+    if current:
+
+        text += (
+            "▶️ **Now Playing**\n"
+            f"🎶 {current['name']}\n"
+            f"👤 {current['artist']}\n\n"
+        )
+
+    if queue:
+
+        text += "📋 **Up Next:**\n"
+
+        for index, track in enumerate(
+            queue,
+            start=1
+        ):
+
+            text += (
+                f"{index}. "
+                f"{track['name']} — "
+                f"{track['artist']}\n"
+            )
+
+    else:
+
+        text += "📭 **Up Next:** Empty"
+
+    await update.message.reply_text(
+        text
+    )
+
+
+# =========================
+# /CLEAR
+# =========================
+
+async def clear_queue(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+
+    queue = get_queue(
+        chat_id
+    )
+
+    queue.clear()
+
+    await update.message.reply_text(
+        "🗑️ Queue clear kar di gayi."
+    )
+
+    print(
+        f"🗑️ QUEUE CLEARED | "
+        f"CHAT ID: {chat_id}"
+    )
 
 
 # =========================
@@ -425,9 +758,9 @@ def main():
         "🚀 AGNI MUSIC BOT STARTING..."
     )
 
-    # -------------------------
+    # =========================
     # ENVIRONMENT VARIABLES
-    # -------------------------
+    # =========================
 
     bot_token = os.environ.get(
         "BOT_TOKEN"
@@ -441,7 +774,9 @@ def main():
 
         return
 
-    if not os.environ.get("API_ID"):
+    if not os.environ.get(
+        "API_ID"
+    ):
 
         print(
             "❌ API_ID is missing!"
@@ -449,7 +784,9 @@ def main():
 
         return
 
-    if not os.environ.get("API_HASH"):
+    if not os.environ.get(
+        "API_HASH"
+    ):
 
         print(
             "❌ API_HASH is missing!"
@@ -477,26 +814,28 @@ def main():
 
         return
 
-    # -------------------------
+    # =========================
     # HEALTH SERVER
-    # -------------------------
+    # =========================
 
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
-    # -------------------------
+    # =========================
     # ASYNCIO LOOP
-    # -------------------------
+    # =========================
 
     loop = asyncio.new_event_loop()
 
-    asyncio.set_event_loop(loop)
+    asyncio.set_event_loop(
+        loop
+    )
 
-    # -------------------------
+    # =========================
     # START ASSISTANT
-    # -------------------------
+    # =========================
 
     try:
 
@@ -513,9 +852,9 @@ def main():
 
         return
 
-    # -------------------------
+    # =========================
     # TELEGRAM BOT
-    # -------------------------
+    # =========================
 
     print(
         "🔵 Creating Telegram bot..."
@@ -527,9 +866,9 @@ def main():
         .build()
     )
 
-    # -------------------------
+    # =========================
     # COMMAND HANDLERS
-    # -------------------------
+    # =========================
 
     app.add_handler(
         CommandHandler(
@@ -559,16 +898,39 @@ def main():
         )
     )
 
+    app.add_handler(
+        CommandHandler(
+            "skip",
+            skip
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "queue",
+            queue_command
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "clear",
+            clear_queue
+        )
+    )
+
     print(
         "✅ AGNI MUSIC BOT + "
-        "TELETHON ASSISTANT + "
+        "QUEUE + "
+        "SKIP + "
+        "AUTO NEXT + "
         "PYTGCALLS + "
         "JAMENDO READY!"
     )
 
-    # -------------------------
+    # =========================
     # START BOT
-    # -------------------------
+    # =========================
 
     try:
 
