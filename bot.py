@@ -529,9 +529,26 @@ async def skip(
         )
 
         # Stop current song
-        await voice.leave_call(
-            chat_id
-        )
+        queue = get_queue(chat_id)
+
+current_tracks.pop(
+    chat_id,
+    None
+)
+
+if not queue:
+    await update.message.reply_text(
+        "⏭️ Current song skipped.\n\n"
+        "📭 Queue empty hai."
+    )
+    return
+
+next_track = remove_next_from_queue(chat_id)
+
+await play_track(
+    chat_id,
+    next_track
+)
 
         current_tracks.pop(
             chat_id,
