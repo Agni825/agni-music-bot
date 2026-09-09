@@ -276,15 +276,29 @@ async def play_next(chat_id):
 
 # =========================
 # PYTGCALLS STREAM END
+# ====================== 
+
+# =========================
+# STREAM END HANDLER
 # =========================
 
-@voice.on_update(
-    filters.stream_end
-)
-async def stream_end_handler(
-    client,
-    update
-):
+async def stream_end_handler(client, update):
+
+    try:
+        chat_id = update.chat_id
+
+        print(
+            f"🔔 STREAM ENDED | CHAT ID: {chat_id}"
+        )
+
+        await play_next(chat_id)
+
+    except Exception as e:
+
+        print(
+            f"❌ STREAM END ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
 
     try:
 
@@ -732,18 +746,21 @@ async def start_assistant():
     )
 
     voice = PyTgCalls(
-        assistant
-    )
+    assistant
+)
 
-    print(
-        "🔵 PYTGCALLS: starting..."
-    )
+await voice.start()
 
-    await voice.start()
+# STREAM END HANDLER REGISTER
+voice.on_update(
+    filters.stream_end()
+)(
+    stream_end_handler
+)
 
-    print(
-        "✅ PYTGCALLS CONNECTED!"
-    )
+print(
+    "✅ PYTGCALLS CONNECTED!"
+)
 
     return assistant, voice
 
