@@ -524,37 +524,15 @@ async def skip(
 
     try:
 
-        queue = get_queue(
-            chat_id
-        )
-
-        # Stop current song
         queue = get_queue(chat_id)
 
-current_tracks.pop(
-    chat_id,
-    None
-)
-
-if not queue:
-    await update.message.reply_text(
-        "⏭️ Current song skipped.\n\n"
-        "📭 Queue empty hai."
-    )
-    return
-
-next_track = remove_next_from_queue(chat_id)
-
-await play_track(
-    chat_id,
-    next_track
-)
-
+        # Remove current song from tracking
         current_tracks.pop(
             chat_id,
             None
         )
 
+        # If queue is empty
         if not queue:
 
             await update.message.reply_text(
@@ -570,17 +548,19 @@ await play_track(
 
             return
 
+        # Get next song
         next_track = remove_next_from_queue(
             chat_id
         )
 
+        # Play next song
         await play_track(
             chat_id,
             next_track
         )
 
         await update.message.reply_text(
-            f"⏭️ **Skipped!**\n\n"
+            f"⏭️ Skipped!\n\n"
             f"▶️ Now Playing:\n"
             f"🎶 {next_track['name']}\n"
             f"👤 {next_track['artist']}"
