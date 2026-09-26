@@ -1049,6 +1049,29 @@ def main():
 
         return
 
-    # =====================================================
-    # TELEGRAM BOT
-    # 
+#============================================
+# TELEGRAM BOT
+# ============================================
+
+app = ApplicationBuilder().token(bot_token).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("ping", ping))
+app.add_handler(CommandHandler("join", join))
+app.add_handler(CommandHandler("play", play))
+app.add_handler(CommandHandler("skip", skip))
+app.add_handler(CommandHandler("queue", queue))
+app.add_handler(CommandHandler("clear", clear))
+
+# AI CHAT
+app.add_handler(
+    MessageHandler(
+        tg_filters.TEXT & ~tg_filters.COMMAND,
+        chat_reply
+    )
+)
+
+print("✅ TELEGRAM BOT STARTED!")
+print("🎵 MUSIC + 🤖 AI CHAT READY!")
+
+app.run_polling(drop_pending_updates=True)
