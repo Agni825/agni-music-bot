@@ -1049,10 +1049,19 @@ def main():
 
         return
 
-#============================================
+# ============================================
 # TELEGRAM BOT
 # ============================================
 
+bot_token = os.getenv("BOT_TOKEN")
+
+if not bot_token:
+    print("❌ BOT_TOKEN is missing!")
+    raise RuntimeError("BOT_TOKEN environment variable is missing")
+
+app = ApplicationBuilder().token(bot_token).build()
+
+app = ApplicationBuilder().token(bot_token).build()
 app = ApplicationBuilder().token(bot_token).build()
 
 app.add_handler(CommandHandler("start", start))
