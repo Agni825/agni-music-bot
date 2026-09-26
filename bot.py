@@ -11,8 +11,12 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     ContextTypes,
+    filters as tg_filters,
 )
+
+from openai import AsyncOpenAI
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -20,12 +24,11 @@ from telethon.sessions import StringSession
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 from pytgcalls import filters
-from pytgcalls.types import Update as PyTgCallsUpdate
 
 
-# =========================
+# =========================================================
 # RENDER HEALTH SERVER
-# =========================
+# =========================================================
 
 class HealthHandler(BaseHTTPRequestHandler):
 
@@ -33,7 +36,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(
-            b"Agni Music Bot is running!"
+            b"Agni Music + AI Chat Bot is running!"
         )
 
     def log_message(self, format, *args):
@@ -58,26 +61,36 @@ def run_server():
     server.serve_forever()
 
 
-# =========================
+# =========================================================
 # GLOBALS
-# =========================
+# =========================================================
 
 assistant = None
 voice = None
+ai_client = None
 
-# Each chat has its own queue
+# Music queues
 queues = {}
 
-# Current song in each chat
+# Current song
 current_tracks = {}
 
-# Prevent multiple auto-next operations
+# Prevent duplicate auto-next
 playing_next = set()
 
+# Prevent skip/stream-end race
+skip_in_progress = set()
 
-# =========================
+# AI conversation history
+chat_histories = {}
+
+# Maximum number of previous messages kept per chat
+MAX_HISTORY_MESSAGES = 10
+
+
+# =========================================================
 # QUEUE HELPERS
-# =========================
+# =========================================================
 
 def get_queue(chat_id):
 
@@ -104,9 +117,80 @@ def remove_next_from_queue(chat_id):
     return queue.pop(0)
 
 
-# =========================
+# =========================================================
+# AI CHAT HELPERS
+# =========================================================
+
+def get_chat_history(chat_id):
+
+    if chat_id not in chat_histories:
+        chat_histories[chat_id] = []
+
+    return chat_histories[chat_id]
+
+
+def add_chat_message(chat_id, role, content):
+
+    history = get_chat_history(chat_id)
+
+    history.append({
+        "role": role,
+        "content": content
+    })
+
+    # Keep only latest messages
+    if len(history) > MAX_HISTORY_MESSAGES:
+        del history[:-MAX_HISTORY_MESSAGES]
+
+
+async def ask_ai(chat_id, user_message):
+
+    global ai_client
+
+    if ai_client is None:
+        raise RuntimeError(
+            "AI client is not configured."
+        )
+
+    add_chat_message(
+        chat_id,
+        "user",
+        user_message
+    )
+
+    history = get_chat_history(chat_id)
+
+    response = await ai_client.responses.create(
+        model="gpt-5.6-luna",
+        instructions=(
+            "You are Agni, a friendly Telegram AI chatbot. "
+            "Reply naturally and casually. "
+            "Keep answers clear and helpful. "
+            "You can use Hindi, Hinglish or English depending "
+            "on the user's message. "
+            "Do not pretend to be a human."
+        ),
+        input=history,
+        max_output_tokens=500
+    )
+
+    answer = response.output_text.strip()
+
+    if not answer:
+        answer = "Hmm 😅 mujhe iska proper answer nahi mila."
+
+    add_chat_message(
+        chat_id,
+        "assistant",
+        answer
+    )
+
+    return answer
+
+
+# =========================================================
 # SEARCH JAMENDO
-# =========================
+# =========================================================
 
 async def search_jamendo(query):
 
@@ -131,7 +215,6 @@ async def search_jamendo(query):
         f"🔎 JAMENDO SEARCH: {query}"
     )
 
-    # urllib is blocking, so run it in a thread
     def request():
 
         with urllib.request.urlopen(
@@ -183,9 +266,9 @@ async def search_jamendo(query):
     }
 
 
-# =========================
+# =========================================================
 # PLAY TRACK
-# =========================
+# =========================================================
 
 async def play_track(chat_id, track):
 
@@ -219,9 +302,9 @@ async def play_track(chat_id, track):
     )
 
 
-# =========================
+# =========================================================
 # AUTO NEXT
-# =========================
+# =========================================================
 
 async def play_next(chat_id):
 
@@ -274,31 +357,11 @@ async def play_next(chat_id):
         )
 
 
-# =========================
-# PYTGCALLS STREAM END
-# ====================== 
-
-# =========================
+# =========================================================
 # STREAM END HANDLER
-# =========================
+# =========================================================
 
 async def stream_end_handler(client, update):
-
-    try:
-        chat_id = update.chat_id
-
-        print(
-            f"🔔 STREAM ENDED | CHAT ID: {chat_id}"
-        )
-
-        await play_next(chat_id)
-
-    except Exception as e:
-
-        print(
-            f"❌ STREAM END ERROR: "
-            f"{type(e).__name__}: {e}"
-        )
 
     try:
 
@@ -308,6 +371,17 @@ async def stream_end_handler(client, update):
             f"🔔 STREAM ENDED | "
             f"CHAT ID: {chat_id}"
         )
+
+        # Ignore stream-end event caused by manual skip
+        if chat_id in skip_in_progress:
+
+            print(
+                f"⏭️ STREAM END IGNORED "
+                f"BECAUSE OF SKIP | "
+                f"CHAT ID: {chat_id}"
+            )
+
+            return
 
         await play_next(
             chat_id
@@ -321,9 +395,9 @@ async def stream_end_handler(client, update):
         )
 
 
-# =========================
+# =========================================================
 # /START
-# =========================
+# =========================================================
 
 async def start(
     update: Update,
@@ -332,14 +406,19 @@ async def start(
 
     await update.message.reply_text(
         "👋 Hello!\n\n"
-        "🎵 Agni Music Bot is online!\n"
-        "🎧 Voice Chat system is ready."
+        "🤖 Agni AI Chat + Music Bot is online!\n\n"
+        "💬 Normal message bhejo, main reply karunga.\n"
+        "🎵 /play <song>\n"
+        "⏭️ /skip\n"
+        "📋 /queue\n"
+        "🗑️ /clear\n"
+        "🎙️ /join"
     )
 
 
-# =========================
+# =========================================================
 # /PING
-# =========================
+# =========================================================
 
 async def ping(
     update: Update,
@@ -348,13 +427,13 @@ async def ping(
 
     await update.message.reply_text(
         "🏓 Pong!\n\n"
-        "✅ Agni Music Bot is online!"
+        "✅ Agni Bot is online!"
     )
 
 
-# =========================
+# =========================================================
 # /JOIN
-# =========================
+# =========================================================
 
 async def join(
     update: Update,
@@ -396,9 +475,9 @@ async def join(
         )
 
 
-# =========================
+# =========================================================
 # /PLAY
-# =========================
+# =========================================================
 
 async def play(
     update: Update,
@@ -445,10 +524,7 @@ async def play(
             f"{track['artist']}"
         )
 
-        # =====================
-        # CHECK CURRENT SONG
-        # =====================
-
+        # Current song exists
         if chat_id in current_tracks:
 
             add_to_queue(
@@ -461,7 +537,7 @@ async def play(
             )
 
             await update.message.reply_text(
-                f"➕ **Added to Queue**\n\n"
+                f"➕ Added to Queue\n\n"
                 f"🎶 {track['name']}\n"
                 f"👤 {track['artist']}\n\n"
                 f"📋 Queue position: {position}"
@@ -475,17 +551,14 @@ async def play(
 
             return
 
-        # =====================
-        # NOTHING PLAYING
-        # =====================
-
+        # Nothing playing
         await play_track(
             chat_id,
             track
         )
 
         await update.message.reply_text(
-            f"▶️ **Now Playing** 🎵\n\n"
+            f"▶️ Now Playing 🎵\n\n"
             f"🎶 {track['name']}\n"
             f"👤 {track['artist']}"
         )
@@ -503,9 +576,9 @@ async def play(
         )
 
 
-# =========================
+# =========================================================
 # /SKIP
-# =========================
+# =========================================================
 
 async def skip(
     update: Update,
@@ -526,14 +599,30 @@ async def skip(
 
         queue = get_queue(chat_id)
 
-        # Remove current song from tracking
+        # Mark manual skip
+        skip_in_progress.add(
+            chat_id
+        )
+
+        # Remove current song
         current_tracks.pop(
             chat_id,
             None
         )
 
-        # If queue is empty
+        # Queue empty
         if not queue:
+
+            try:
+                await voice.leave_call(
+                    chat_id
+                )
+            except Exception:
+                pass
+
+            skip_in_progress.discard(
+                chat_id
+            )
 
             await update.message.reply_text(
                 "⏭️ Current song skipped.\n\n"
@@ -548,15 +637,19 @@ async def skip(
 
             return
 
-        # Get next song
+        # Get next
         next_track = remove_next_from_queue(
             chat_id
         )
 
-        # Play next song
+        # Play next
         await play_track(
             chat_id,
             next_track
+        )
+
+        skip_in_progress.discard(
+            chat_id
         )
 
         await update.message.reply_text(
@@ -567,6 +660,10 @@ async def skip(
         )
 
     except Exception as e:
+
+        skip_in_progress.discard(
+            chat_id
+        )
 
         print(
             f"❌ SKIP ERROR: "
@@ -579,9 +676,9 @@ async def skip(
         )
 
 
-# =========================
+# =========================================================
 # /QUEUE
-# =========================
+# =========================================================
 
 async def queue_command(
     update: Update,
@@ -606,19 +703,21 @@ async def queue_command(
 
         return
 
-    text = "🎵 **Agni Music Queue**\n\n"
+    text = (
+        "🎵 Agni Music Queue\n\n"
+    )
 
     if current:
 
         text += (
-            "▶️ **Now Playing**\n"
+            "▶️ Now Playing\n"
             f"🎶 {current['name']}\n"
             f"👤 {current['artist']}\n\n"
         )
 
     if queue:
 
-        text += "📋 **Up Next:**\n"
+        text += "📋 Up Next:\n"
 
         for index, track in enumerate(
             queue,
@@ -633,16 +732,16 @@ async def queue_command(
 
     else:
 
-        text += "📭 **Up Next:** Empty"
+        text += "📭 Up Next: Empty"
 
     await update.message.reply_text(
         text
     )
 
 
-# =========================
+# =========================================================
 # /CLEAR
-# =========================
+# =========================================================
 
 async def clear_queue(
     update: Update,
@@ -667,9 +766,66 @@ async def clear_queue(
     )
 
 
-# =========================
+# =========================================================
+# AI CHAT
+# =========================================================
+
+async def chat_reply(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    # Ignore messages without text
+    if not update.message:
+        return
+
+    if not update.message.text:
+        return
+
+    text = update.message.text.strip()
+
+    # Ignore commands
+    if text.startswith("/"):
+        return
+
+    if not text:
+        return
+
+    chat_id = update.effective_chat.id
+
+    print(
+        f"💬 AI MESSAGE | "
+        f"CHAT ID: {chat_id} | "
+        f"{text}"
+    )
+
+    try:
+
+        answer = await ask_ai(
+            chat_id,
+            text
+        )
+
+        await update.message.reply_text(
+            answer
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ AI CHAT ERROR: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        await update.message.reply_text(
+            "😅 Abhi AI reply nahi kar pa raha.\n"
+            "Thodi der baad try karo."
+        )
+
+
+# =========================================================
 # TELETHON + PYTGCALLS
-# =========================
+# =========================================================
 
 async def start_assistant():
 
@@ -743,38 +899,40 @@ async def start_assistant():
     )
 
     voice = PyTgCalls(
-    assistant
-)
+        assistant
+    )
 
-await voice.start()
+    await voice.start()
 
-# STREAM END HANDLER REGISTER
-voice.on_update(
-    filters.stream_end()
-)(
-    stream_end_handler
-)
+    # STREAM END HANDLER
+    voice.on_update(
+        filters.stream_end()
+    )(
+        stream_end_handler
+    )
 
-print(
-    "✅ PYTGCALLS CONNECTED!"
-)
+    print(
+        "✅ PYTGCALLS CONNECTED!"
+    )
 
     return assistant, voice
 
 
-# =========================
+# =========================================================
 # MAIN
-# =========================
+# =========================================================
 
 def main():
 
+    global ai_client
+
     print(
-        "🚀 AGNI MUSIC BOT STARTING..."
+        "🚀 AGNI MUSIC + AI BOT STARTING..."
     )
 
-    # =========================
+    # =====================================================
     # ENVIRONMENT VARIABLES
-    # =========================
+    # =====================================================
 
     bot_token = os.environ.get(
         "BOT_TOKEN"
@@ -828,18 +986,43 @@ def main():
 
         return
 
-    # =========================
+    # AI key
+    openai_key = os.environ.get(
+        "OPENAI_API_KEY"
+    )
+
+    if not openai_key:
+
+        print(
+            "❌ OPENAI_API_KEY is missing!"
+        )
+
+        return
+
+    # =====================================================
+    # CREATE AI CLIENT
+    # =====================================================
+
+    ai_client = AsyncOpenAI(
+        api_key=openai_key
+    )
+
+    print(
+        "✅ OPENAI AI CLIENT READY!"
+    )
+
+    # =====================================================
     # HEALTH SERVER
-    # =========================
+    # =====================================================
 
     Thread(
         target=run_server,
         daemon=True
     ).start()
 
-    # =========================
+    # =====================================================
     # ASYNCIO LOOP
-    # =========================
+    # =====================================================
 
     loop = asyncio.new_event_loop()
 
@@ -847,9 +1030,9 @@ def main():
         loop
     )
 
-    # =========================
+    # =====================================================
     # START ASSISTANT
-    # =========================
+    # =====================================================
 
     try:
 
@@ -866,167 +1049,6 @@ def main():
 
         return
 
-    # =========================
+    # =====================================================
     # TELEGRAM BOT
-    # =========================
-
-    print(
-        "🔵 Creating Telegram bot..."
-    )
-
-    app = (
-        ApplicationBuilder()
-        .token(bot_token)
-        .build()
-    )
-
-    # =========================
-    # COMMAND HANDLERS
-    # =========================
-
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "ping",
-            ping
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "join",
-            join
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "play",
-            play
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "skip",
-            skip
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "queue",
-            queue_command
-        )
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "clear",
-            clear_queue
-        )
-    )
-
-    print(
-        "✅ AGNI MUSIC BOT + "
-        "QUEUE + "
-        "SKIP + "
-        "AUTO NEXT + "
-        "PYTGCALLS + "
-        "JAMENDO READY!"
-    )
-
-    # =========================
-    # START BOT
-    # =========================
-
-    try:
-
-        loop.run_until_complete(
-            app.initialize()
-        )
-
-        loop.run_until_complete(
-            app.start()
-        )
-
-        loop.run_until_complete(
-            app.updater.start_polling()
-        )
-
-        print(
-            "🎵 AGNI MUSIC BOT "
-            "IS FULLY RUNNING!"
-        )
-
-        loop.run_forever()
-
-    except Exception as e:
-
-        print(
-            f"❌ TELEGRAM BOT ERROR: "
-            f"{type(e).__name__}: {e}"
-        )
-
-    finally:
-
-        print(
-            "🔵 Shutting down..."
-        )
-
-        try:
-
-            loop.run_until_complete(
-                app.updater.stop()
-            )
-
-        except Exception:
-            pass
-
-        try:
-
-            loop.run_until_complete(
-                app.stop()
-            )
-
-        except Exception:
-            pass
-
-        try:
-
-            loop.run_until_complete(
-                app.shutdown()
-            )
-
-        except Exception:
-            pass
-
-        try:
-
-            if assistant:
-
-                loop.run_until_complete(
-                    assistant.disconnect()
-                )
-
-        except Exception:
-            pass
-
-        print(
-            "🛑 AGNI MUSIC BOT STOPPED."
-        )
-
-
-# =========================
-# RUN
-# =========================
-
-if __name__ == "__main__":
-
-    main()
+    # 
